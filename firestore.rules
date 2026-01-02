@@ -1,0 +1,29 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+
+    match /offers/{offerId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+
+      match /ratings/{userId} {
+        allow read: if true;
+        allow create, update: if isSignedIn() && request.auth.uid == userId;
+        allow delete: if false;
+      }
+    }
+
+    // Opcional: bloquear qualquer outra coleção por padrão
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

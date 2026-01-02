@@ -1,0 +1,15 @@
+export const theme = {
+    radius: 16,
+    radius2: 22,
+    shadow: "0 10px 30px rgba(0,0,0,0.08)",
+    border: "1px solid rgba(15,23,42,0.10)",
+    bg: "#f8fafc",
+    card: "#ffffff",
+    text: "#0f172a",
+    muted: "rgba(15,23,42,0.65)",
+    primary: "#111827",
+    primaryText: "#ffffff",
+    soft: "rgba(15,23,42,0.06)",
+    dangerSoft: "rgba(239,68,68,0.10)",
+    dangerBorder: "1px solid rgba(239,68,68,0.25)",
+};

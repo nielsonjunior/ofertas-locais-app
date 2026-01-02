@@ -1,51 +1,43 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { AuthProvider } from './contexts/AuthContext';
-import Home from './components/Home';
-import Login from './components/Login';
-import Register from './components/Register';
-import MerchantDashboard from './components/MerchantDashboard';
-import CreateOffer from './components/CreateOffer';
-import MerchantProfile from './components/MerchantProfile';
-import OfferDetails from './components/OfferDetails';
-import ChoosePlan from './components/ChoosePlan';
-import SeedDatabase from './components/SeedDatabase';
-import SearchResults from './components/SearchResults';
-import MerchantSettings from './components/MerchantSettings';
-import MerchantLayout from './components/MerchantLayout'; // Correctly placed
-import './index.css';
+import React from "react";
+import { Routes, Route } from "react-router-dom";
+import AppLayout from "./layouts/AppLayout";
+import Home from "./pages/Home";
+import Login from "./pages/Login";
+import Register from "./pages/Register";
+import Profile from "./pages/Profile";
+import SwipeFeed from "./pages/SwipeFeed";
+import AccountGate from "./pages/AccountGate";
+import MerchantHub from "./pages/merchant/MerchantHub";
+import AdminCreateOffer from "./pages/admin/AdminCreateOffer"; // Mantendo para compatibilidade/demo seed
+import { useIsAdmin } from "./hooks/useIsAdmin";
 
-function App() {
-  return (
-    <AuthProvider>
-      <Router>
-        <div className="App">
-          <Routes>
-            <Route path="/" element={<Home />} />
-            <Route path="/search" element={<SearchResults />} />
-            <Route path="/offer/:id" element={<OfferDetails />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            import MerchantLayout from './components/MerchantLayout';
-
-            // ... (imports)
-
-            // Inside Routes:
-            <Route path="/merchant" element={<MerchantLayout />}>
-              <Route index element={<MerchantDashboard />} />
-              <Route path="profile" element={<MerchantProfile />} />
-              <Route path="plan" element={<ChoosePlan />} />
-              <Route path="new-offer" element={<CreateOffer />} />
-              <Route path="edit-offer/:id" element={<CreateOffer />} />
-              <Route path="settings" element={<MerchantSettings />} />
-            </Route>
-            <Route path="/seed" element={<SeedDatabase />} />
-            {/* Future route: /admin */}
-          </Routes>
-        </div>
-      </Router>
-    </AuthProvider>
-  );
+// Wrapper for admin routes
+function AdminRoute({ children }) {
+  const { isAdmin, loading } = useIsAdmin();
+  if (loading) return null;
+  return isAdmin ? children : <div>Acesso negado</div>;
 }
 
-export default App;
+export default function App() {
+  return (
+    <Routes>
+      <Route element={<AppLayout />}>
+        <Route path="/" element={<Home />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        {/* Account wrapper checks auth state then redirects */}
+        <Route path="/account" element={<AccountGate />} />
+        <Route path="/profile" element={<Profile />} />
+
+        {/* Merchant Area */}
+        <Route path="/merchant" element={<MerchantHub />} />
+
+        {/* Legacy Admin */}
+        <Route path="/admin/create" element={<AdminRoute><AdminCreateOffer /></AdminRoute>} />
+      </Route>
+
+      {/* Standalone Swipe Page */}
+      <Route path="/swipe" element={<SwipeFeed />} />
+    </Routes>
+  );
+}
