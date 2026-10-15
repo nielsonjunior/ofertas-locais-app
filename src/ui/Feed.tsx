@@ -16,9 +16,17 @@ function useVistas() {
       publico.vistas([...pendentes.current])
       pendentes.current.clear()
     }
+    // No iPhone, trocar de app nem sempre dispara pagehide; visibilitychange dispara.
+    const aoEsconder = () => { if (document.visibilityState === 'hidden') enviar() }
     const t = setInterval(enviar, 5000)
     window.addEventListener('pagehide', enviar)
-    return () => { clearInterval(t); window.removeEventListener('pagehide', enviar); enviar() }
+    document.addEventListener('visibilitychange', aoEsconder)
+    return () => {
+      clearInterval(t)
+      window.removeEventListener('pagehide', enviar)
+      document.removeEventListener('visibilitychange', aoEsconder)
+      enviar()
+    }
   }, [])
   return useCallback((id: string) => {
     if (contadas.current.has(id)) return

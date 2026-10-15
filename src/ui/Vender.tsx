@@ -160,7 +160,7 @@ function Painel({ sessao, saiu }: { sessao: Sessao; saiu: () => void }) {
         {produtos.map((p) => (
           <button key={p.id} className="quadro" style={{ border: 0, padding: 0, cursor: 'pointer' }} onClick={() => setEditando(p)}>
             {p.fotos[0] && <img src={p.fotos[0]} alt={p.titulo} loading="lazy" />}
-            {!p.ativo && <span className="pausado">pausado</span>}
+            {p.removido ? <span className="pausado">removido pela administração</span> : !p.ativo && <span className="pausado">pausado</span>}
             <span className="rotulo" style={{ textAlign: 'left' }}>
               <span className="valor">{emReais(p.preco)}</span><br />
               👁 {p.vistas} · 💬 {p.cliques}
@@ -222,13 +222,12 @@ function EditarProduto({ produto, categoriaDaLoja, fechar }: { produto: ProdutoD
     const arquivos = [...(e.target.files ?? [])].slice(0, 5 - f.fotos.length)
     e.target.value = ''
     setErro('')
-    let fotos = f.fotos
     for (const [i, arquivo] of arquivos.entries()) {
       setEnviando(`Enviando foto ${i + 1} de ${arquivos.length}…`)
       try {
         const { url } = await lojista.enviarFoto(await prepararFoto(arquivo))
-        fotos = [...fotos, url]
-        setF((atual) => ({ ...atual, fotos }))
+        // Sobre o estado atual, não sobre o do começo: tirar uma foto durante o envio não volta.
+        setF((atual) => ({ ...atual, fotos: [...atual.fotos, url].slice(0, 5) }))
       } catch (falha) {
         setErro((falha as Error).message)
         break
@@ -271,7 +270,8 @@ function EditarProduto({ produto, categoriaDaLoja, fechar }: { produto: ProdutoD
             {f.fotos.map((url, i) => (
               <div className="miniatura" key={url}>
                 <img src={url} alt={`Foto ${i + 1}`} />
-                <button type="button" aria-label={`Tirar foto ${i + 1}`} onClick={() => setF({ ...f, fotos: f.fotos.filter((x) => x !== url) })}>×</button>
+                <button type="button" aria-label={`Tirar foto ${i + 1}`} disabled={Boolean(enviando)}
+                  onClick={() => setF((atual) => ({ ...atual, fotos: atual.fotos.filter((x) => x !== url) }))}>×</button>
               </div>
             ))}
             {f.fotos.length < 5 && (
@@ -296,7 +296,8 @@ function EditarProduto({ produto, categoriaDaLoja, fechar }: { produto: ProdutoD
         <label>Descrição<textarea value={f.descricao} onChange={campo('descricao')} maxLength={1000} placeholder="Tamanhos, cores, estado, como entrega…" /></label>
         {erro && <p className="erro">{erro}</p>}
         <button className="botao" disabled={Boolean(enviando)}>{produto ? 'Gravar' : 'Publicar'}</button>
-        {produto && (
+        {produto?.removido && <p className="aviso">Este produto foi removido pela administração depois de uma denúncia e não volta ao feed.</p>}
+        {produto && !produto.removido && (
           <div className="linha">
             <button type="button" className="botao claro pequeno" onClick={() => acao(() => lojista.ativo(produto.id, !produto.ativo))}>
               {produto.ativo ? 'Pausar (acabou o estoque)' : 'Voltar a mostrar'}

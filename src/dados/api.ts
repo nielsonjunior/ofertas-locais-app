@@ -152,10 +152,9 @@ export interface LojaNoAdmin {
 }
 
 export interface Denuncia {
-  id: string
-  motivo: string
-  criadaEm: string
   produtoId: string
+  quantas: number
+  motivos: string[]
   titulo: string
   foto: string
   preco: number
@@ -167,10 +166,10 @@ export interface Denuncia {
 const A = '/api/admin?acao='
 
 export const administrador = {
-  lojas: (estado = '') => pedir<LojaNoAdmin[]>(`${A}lojas${estado ? `&estado=${estado}` : ''}`),
+  lojas: (estado = '') => pedir<{ total: number; lojas: LojaNoAdmin[] }>(`${A}lojas${estado ? `&estado=${estado}` : ''}`),
   estado: (id: string, estado: EstadoDaLoja) => pedir<void>(`${A}estado-da-loja`, json('POST', { id, estado })),
   denuncias: () => pedir<Denuncia[]>(`${A}denuncias`),
   tirarDoAr: (produtoId: string) => pedir<void>(`${A}tirar-do-ar`, json('POST', { produtoId })),
-  resolver: (id: string) => pedir<void>(`${A}resolver`, json('POST', { id })),
+  resolver: (produtoId: string) => pedir<void>(`${A}resolver`, json('POST', { produtoId })),
   novaCidade: (nome: string, uf: string) => pedir<{ id: string }>(`${A}cidade`, json('POST', { nome, uf }))
 }

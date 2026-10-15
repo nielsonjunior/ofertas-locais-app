@@ -26,9 +26,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const sql = await banco()
     const rota = `${req.method} ${parametro(req, 'acao')}`
 
-    if (req.method === 'GET') {
+    if (rota === 'GET feed' || rota === 'GET cidades') {
       // Um minuto na borda: o feed muda pouco a cada minuto e assim aguenta pico.
-      res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=60, stale-while-revalidate=300')
+      res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=60, stale-while-revalidate=120')
+    } else if (req.method === 'GET') {
+      // Produto e loja: quase sem cache, para o que foi tirado do ar sumir logo
+      // de quem recebeu o link.
+      res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=10')
     }
 
     switch (rota) {
@@ -62,15 +66,17 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
       case 'POST vistas': {
         const corpo = await lerJson(req)
-        const ids = Array.isArray(corpo.ids) ? corpo.ids.filter((x): x is string => typeof x === 'string').slice(0, 30) : []
-        if (ids.length) await sql`update produtos set vistas = vistas + 1 where id = any(${ids})`
+        await freioPorEndereco(sql, req, 'vistas', 300)
+        const ids = Array.isArray(corpo.ids) ? [...new Set(corpo.ids.filter((x): x is string => typeof x === 'string'))].slice(0, 30) : []
+        if (ids.length) await sql`update produtos set vistas = vistas + 1 where id = any(${ids}) and ativo and not removido`
         responderJson(res, 204, undefined)
         return
       }
 
       case 'POST clique': {
         const corpo = await lerJson(req)
-        await sql`update produtos set cliques = cliques + 1 where id = ${String(corpo.id ?? '')}`
+        await freioPorEndereco(sql, req, 'clique', 60)
+        await sql`update produtos set cliques = cliques + 1 where id = ${String(corpo.id ?? '')} and ativo and not removido`
         responderJson(res, 204, undefined)
         return
       }
@@ -80,6 +86,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         const motivo = String(corpo.motivo ?? '')
         if (!(MOTIVOS_DE_DENUNCIA as readonly string[]).includes(motivo)) throw new ErroDoCliente('escolha o motivo')
         await freioPorEndereco(sql, req, 'denuncia', 10)
+        // Uma denúncia por produto por pessoa: repetir não aumenta o peso.
+        await freioPorEndereco(sql, req, `denuncia-${String(corpo.produtoId ?? '').slice(0, 40)}`, 1, 'você já denunciou este produto; obrigado')
         const feita = await sql`
           insert into denuncias (id, produto_id, motivo)
           select ${randomBytes(9).toString('base64url')}, id, ${motivo} from produtos where id = ${String(corpo.produtoId ?? '')}

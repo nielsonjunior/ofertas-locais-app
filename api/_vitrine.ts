@@ -36,7 +36,7 @@ export async function feedDaCidade(sql: Sql, cidadeId: string, categoria = ''): 
     select p.id, p.titulo, p.descricao, p.categoria, p.preco, p.preco_de, p.fotos, p.criado_em,
            l.id as loja_id, l.nome as loja_nome, l.whatsapp as loja_whatsapp
       from produtos p join lojas l on l.id = p.loja_id
-     where l.cidade_id = ${cidadeId} and l.estado = 'aprovada' and p.ativo
+     where l.cidade_id = ${cidadeId} and l.estado = 'aprovada' and p.ativo and not p.removido
        and (${categoria} = '' or p.categoria = ${categoria})
      order by p.criado_em desc
      limit ${LIMITE_DO_FEED}`
@@ -48,7 +48,7 @@ export async function produtoPublico(sql: Sql, id: string): Promise<ProdutoNaVit
     select p.id, p.titulo, p.descricao, p.categoria, p.preco, p.preco_de, p.fotos, p.criado_em,
            l.id as loja_id, l.nome as loja_nome, l.whatsapp as loja_whatsapp, l.cidade_id
       from produtos p join lojas l on l.id = p.loja_id
-     where p.id = ${id} and p.ativo and l.estado = 'aprovada'`
+     where p.id = ${id} and p.ativo and not p.removido and l.estado = 'aprovada'`
   return l ? { ...paraVitrine(l), cidadeId: String(l.cidade_id) } : null
 }
 
@@ -62,7 +62,7 @@ export async function lojaPublica(sql: Sql, id: string) {
     select p.id, p.titulo, p.descricao, p.categoria, p.preco, p.preco_de, p.fotos, p.criado_em,
            l.id as loja_id, l.nome as loja_nome, l.whatsapp as loja_whatsapp
       from produtos p join lojas l on l.id = p.loja_id
-     where p.loja_id = ${id} and p.ativo
+     where p.loja_id = ${id} and p.ativo and not p.removido
      order by p.criado_em desc limit 200`
   return {
     id: String(l.id), nome: String(l.nome), categoria: String(l.categoria), whatsapp: String(l.whatsapp),

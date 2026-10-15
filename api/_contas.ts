@@ -12,8 +12,18 @@ import {
  * todo endereço que mexe em loja passa por exigirConta.
  */
 
-const ERROS_ANTES_DO_FREIO = 5
 const MINUTOS_DE_FREIO = 15
+/** Tentativas de um mesmo endereço para um mesmo usuário, por janela. */
+const TENTATIVAS_POR_PAR = 5
+/**
+ * Teto por usuário, somando todos os endereços: segura quem distribui chutes
+ * por muitos endereços, e é alto o bastante para que travar o administrador
+ * de propósito custe caro.
+ */
+const TENTATIVAS_POR_CONTA = 100
+
+/** Lojas novas por hora, no site todo. */
+const CADASTROS_POR_HORA = 30
 
 export type Papel = 'admin' | 'lojista'
 
@@ -27,47 +37,88 @@ function hashDoToken(token: string): string {
   return createHash('sha256').update(token).digest('hex')
 }
 
-/** O endereço de quem pede. Na Vercel, o primeiro de x-forwarded-for é posto pela própria Vercel. */
-function enderecoDe(req: IncomingMessage): string {
-  const encaminhado = String(req.headers['x-forwarded-for'] ?? '').split(',')[0]?.trim()
-  return (encaminhado || req.socket?.remoteAddress || 'desconhecido').slice(0, 64)
+/** Expande "2001:db8::1" para os 8 grupos, para cortar no /64. */
+function expandirIpv6(ip: string): string[] {
+  const [inicio = '', fim = ''] = ip.split('::')
+  const a = inicio ? inicio.split(':') : []
+  const b = ip.includes('::') ? (fim ? fim.split(':') : []) : []
+  return [...a, ...Array(Math.max(0, 8 - a.length - b.length)).fill('0'), ...b]
 }
 
 /**
- * Conta uma tentativa deste endereço para `assunto` e recusa acima do limite
- * na janela de 15 minutos. Atômico: pedidos simultâneos não passam juntos.
+ * O endereço de quem pede. Na Vercel, o primeiro de x-forwarded-for é posto
+ * pela própria Vercel. IPv6 conta pelo /64: uma casa recebe milhões de
+ * endereços, e trocar o final não pode zerar o freio.
  */
-export async function freioPorEndereco(sql: Sql, req: IncomingMessage, assunto: string, limite: number): Promise<void> {
-  const chave = `${assunto}:${enderecoDe(req)}`
+export function enderecoDe(req: IncomingMessage): string {
+  const encaminhado = String(req.headers['x-forwarded-for'] ?? '').split(',')[0]?.trim()
+  const ip = (encaminhado || req.socket?.remoteAddress || 'desconhecido').slice(0, 64)
+  if (ip.includes(':') && !ip.includes('.')) return `${expandirIpv6(ip).slice(0, 4).join(':')}::/64`
+  return ip
+}
+
+/**
+ * Conta uma tentativa para `chave` e devolve quantas já houve na janela de
+ * 15 minutos. Atômico: pedidos simultâneos não passam juntos.
+ */
+async function contar(sql: Sql, chave: string): Promise<number> {
   const [linha] = await sql`
-    insert into tentativas (endereco, janela, total) values (${chave}, now(), 1)
+    insert into tentativas (endereco, janela, total) values (${chave.slice(0, 200)}, now(), 1)
     on conflict (endereco) do update set
       total = case when tentativas.janela < now() - make_interval(mins => ${MINUTOS_DE_FREIO}) then 1 else tentativas.total + 1 end,
       janela = case when tentativas.janela < now() - make_interval(mins => ${MINUTOS_DE_FREIO}) then now() else tentativas.janela end
     returning total`
-  if (Number(linha?.total) > limite) {
-    throw new ErroDoCliente(`muitas tentativas deste endereço; espere ${MINUTOS_DE_FREIO} minutos`, 429)
+  // Faxina de vez em quando, para a tabela não crescer sem fim.
+  if (Math.random() < 0.02) await sql`delete from tentativas where janela < now() - interval '1 day'`
+  return Number(linha?.total)
+}
+
+/** Recusa acima de `limite` tentativas deste endereço para `assunto`, na janela de 15 minutos. */
+export async function freioPorEndereco(sql: Sql, req: IncomingMessage, assunto: string, limite: number, mensagem = ''): Promise<void> {
+  if (await contar(sql, `${assunto}:${enderecoDe(req)}`) > limite) {
+    throw new ErroDoCliente(mensagem || `muitas tentativas deste endereço; espere ${MINUTOS_DE_FREIO} minutos`, 429)
   }
+}
+
+function usuarioDoAdminInicial(): string {
+  return (process.env.ADMIN_INICIAL ?? '').split(':')[0]?.trim().toLowerCase() ?? ''
+}
+
+/** Nomes que lojista não pode escolher: o do administrador inicial e os que parecem oficiais. */
+const RESERVADOS = new Set(['admin', 'administrador', 'adm', 'root', 'suporte', 'ofertas', 'ofertaslocais', 'equipe', 'moderacao'])
+
+export function usuarioReservado(usuario: string): boolean {
+  return RESERVADOS.has(usuario) || usuario === usuarioDoAdminInicial()
 }
 
 /**
  * Cria o primeiro administrador a partir de ADMIN_INICIAL ("usuario:sal:hash")
  * quando não há nenhum ativo. Com um administrador ativo, não muda nada.
+ *
+ * Nunca transforma uma conta de lojista em administrador: se o nome já for de
+ * um lojista, alguém o pegou antes — e herdaria a sessão aberta como admin.
  */
 async function garantirAdmin(sql: Sql): Promise<void> {
-  const [usuario, sal, hash] = (process.env.ADMIN_INICIAL ?? '').split(':')
+  const [usuarioBruto, sal, hash] = (process.env.ADMIN_INICIAL ?? '').split(':')
+  const usuario = usuarioBruto?.trim().toLowerCase()
   if (!usuario || !sal || !hash) return
   const [linha] = await sql`select count(*)::int as total from contas where papel = 'admin' and ativo`
   if (Number(linha?.total) > 0) return
-  await sql`insert into contas (usuario, senha, papel) values (${usuario.toLowerCase()}, ${`${sal}:${hash}`}, 'admin')
-            on conflict (usuario) do update set senha = excluded.senha, papel = 'admin', ativo = true, erros = 0, bloqueado_ate = null`
+  const feitas = await sql`
+    insert into contas (usuario, senha, papel) values (${usuario}, ${`${sal}:${hash}`}, 'admin')
+    on conflict (usuario) do update set senha = excluded.senha, ativo = true
+     where contas.papel = 'admin'
+    returning usuario`
+  if (feitas.length === 0) {
+    console.error('ADMIN_INICIAL usa um nome que já é de lojista; escolha outro usuário para o administrador')
+    return
+  }
+  // Senha nova: sessão antiga deste nome não vale mais.
+  await sql`delete from sessoes where usuario = ${usuario}`
 }
 
-/**
- * Mesma resposta para usuário inexistente, senha errada e usuário travado:
- * quem está de fora não descobre quem existe nem quem travou.
- */
-const NAO_CONFERE = `usuário ou senha não conferem (depois de ${ERROS_ANTES_DO_FREIO} erros, o acesso trava por ${MINUTOS_DE_FREIO} minutos)`
+/** Mesma resposta para usuário inexistente e senha errada: quem está de fora não descobre quem existe. */
+const NAO_CONFERE = 'usuário ou senha não conferem'
 
 async function abrirSessao(sql: Sql, res: ServerResponse, usuario: string): Promise<void> {
   const token = novoToken()
@@ -81,27 +132,35 @@ export async function entrar(req: IncomingMessage, res: ServerResponse, usuarioD
   const sql = await banco()
   await garantirAdmin(sql)
   const usuario = usuarioDigitado.trim().toLowerCase()
-  await freioPorEndereco(sql, req, 'entrar', 20)
+  const endereco = enderecoDe(req)
 
-  // A tentativa é reservada antes de conferir a senha, numa instrução só: cem
-  // pedidos ao mesmo tempo não passam do limite, porque o banco faz fila na linha.
-  const [reserva] = await sql`
-    update contas set
-      erros = case when bloqueado_ate < now() then 1 else erros + 1 end,
-      bloqueado_ate = case when (case when bloqueado_ate < now() then 1 else erros + 1 end) >= ${ERROS_ANTES_DO_FREIO}
-                           then now() + make_interval(mins => ${MINUTOS_DE_FREIO}) end
-     where usuario = ${usuario} and ativo and (bloqueado_ate is null or bloqueado_ate < now())
-    returning senha, papel, loja_id`
+  // Os freios contam antes de conferir a senha, cada um numa instrução só:
+  // cem pedidos ao mesmo tempo não passam juntos. Valem igual para usuário
+  // que existe e que não existe, então não contam quem existe.
+  //  - por endereço, qualquer usuário: quem varre muitos nomes;
+  //  - por usuário e endereço: quem chuta a senha de uma conta;
+  //  - por usuário, todos os endereços: quem distribui os chutes.
+  // Travar por endereço+usuário, e não só por usuário, impede que um
+  // estranho deixe o administrador do lado de fora com 5 senhas erradas.
+  const espere = `muitas tentativas; espere ${MINUTOS_DE_FREIO} minutos`
+  if (await contar(sql, `entrar:${endereco}`) > 20) throw new ErroDoCliente(espere, 429)
+  if (await contar(sql, `par:${usuario}:${endereco}`) > TENTATIVAS_POR_PAR) throw new ErroDoCliente(espere, 429)
+  if (await contar(sql, `conta:${usuario}`) > TENTATIVAS_POR_CONTA) throw new ErroDoCliente(espere, 429)
 
-  // O hash roda sempre, até para usuário inexistente ou travado: o tempo da
-  // resposta não conta quem existe.
-  const ok = await confereEmTempoConstante(senha, reserva ? String(reserva.senha) : undefined)
-  if (!ok || !reserva) throw new ErroDoCliente(NAO_CONFERE, 401)
+  const [conta] = await sql`
+    select c.senha, c.papel, c.loja_id, l.estado as estado_da_loja
+      from contas c left join lojas l on l.id = c.loja_id
+     where c.usuario = ${usuario} and c.ativo`
 
-  await sql`update contas set erros = 0, bloqueado_ate = null where usuario = ${usuario}`
-  await sql`delete from tentativas where janela < now() - interval '1 day'`
+  // O hash roda sempre, até para usuário inexistente: o tempo da resposta não conta quem existe.
+  const ok = await confereEmTempoConstante(senha, conta ? String(conta.senha) : undefined)
+  if (!ok || !conta) throw new ErroDoCliente(NAO_CONFERE, 401)
+  if (conta.estado_da_loja === 'bloqueada') throw new ErroDoCliente('esta loja foi bloqueada; fale com o suporte', 403)
+
+  // Acertou: os erros deste endereço não contam mais contra ele.
+  await sql`delete from tentativas where endereco = ${`par:${usuario}:${endereco}`.slice(0, 200)}`
   await abrirSessao(sql, res, usuario)
-  return { usuario, papel: reserva.papel as Papel, lojaId: reserva.loja_id ? String(reserva.loja_id) : null }
+  return { usuario, papel: conta.papel as Papel, lojaId: conta.loja_id ? String(conta.loja_id) : null }
 }
 
 /** Conta nova de lojista, já com a loja (pendente) e já logada. */
@@ -110,8 +169,13 @@ export async function cadastrarLojista(
   conta: { usuario: string; senha: string },
   loja: { id: string; cidadeId: string; nome: string; categoria: string; whatsapp: string; endereco: string; descricao: string }
 ): Promise<Sessao> {
+  if (usuarioReservado(conta.usuario)) throw new ErroDoCliente('esse usuário já existe; escolha outro')
   const sql = await banco()
   await freioPorEndereco(sql, req, 'cadastro', 5)
+  // Teto geral por hora: trocar de endereço não basta para enterrar a fila
+  // de aprovação com lojas falsas.
+  const [recentes] = await sql`select count(*)::int as total from lojas where criada_em > now() - interval '1 hour'`
+  if (Number(recentes?.total) >= CADASTROS_POR_HORA) throw new ErroDoCliente('muitos cadastros agora; tente de novo em alguns minutos', 429)
   const [cidade] = await sql`select id from cidades where id = ${loja.cidadeId}`
   if (!cidade) throw new ErroDoCliente('cidade desconhecida')
   const senha = await embaralhar(conta.senha)
@@ -144,9 +208,13 @@ export async function quemEsta(req: IncomingMessage): Promise<Sessao | null> {
   const token = tokenDoCookie(req.headers.cookie)
   if (!token) return null
   const sql = await banco()
+  // Loja bloqueada perde o acesso na hora, mesmo com sessão aberta.
   const [linha] = await sql`
-    select c.usuario, c.papel, c.loja_id from sessoes s join contas c on c.usuario = s.usuario
-     where s.token_hash = ${hashDoToken(token)} and s.expira_em > now() and c.ativo`
+    select c.usuario, c.papel, c.loja_id from sessoes s
+      join contas c on c.usuario = s.usuario
+      left join lojas l on l.id = c.loja_id
+     where s.token_hash = ${hashDoToken(token)} and s.expira_em > now() and c.ativo
+       and (c.papel = 'admin' or l.estado <> 'bloqueada')`
   return linha ? { usuario: String(linha.usuario), papel: linha.papel as Papel, lojaId: linha.loja_id ? String(linha.loja_id) : null } : null
 }
 

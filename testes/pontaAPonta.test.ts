@@ -12,7 +12,8 @@ import { chamar } from './apoio/http'
  */
 
 vi.mock('@vercel/blob', () => ({
-  put: vi.fn(async (caminho: string) => ({ url: `https://abc123.public.blob.vercel-storage.com/${caminho}` }))
+  put: vi.fn(async (caminho: string) => ({ url: `https://abc123.public.blob.vercel-storage.com/${caminho}` })),
+  del: vi.fn(async () => {})
 }))
 
 const enviadas: { para: string; texto: string }[] = []
@@ -112,10 +113,19 @@ describe.skipIf(!URL_DE_TESTE)('de ponta a ponta', () => {
 
     it('foto que não é imagem e foto de fora não entram', async () => {
       expect((await pedir(loja, 'POST', '/api/loja?acao=foto', 'A', Buffer.from('<html><script>x</script></html>'))).status).toBe(400)
-      const r = await pedir(loja, 'POST', '/api/loja?acao=produto', 'A', {
-        titulo: 'X', categoria: 'roupas', preco: '1,00', fotos: ['https://golpe.exemplo/x.jpg']
-      })
-      expect(r.status).toBe(400)
+      // Outro armazém da Vercel, com o caminho certo da loja: ainda não é foto nossa.
+      const minha = (await pedir(loja, 'GET', '/api/loja?acao=minha', 'A')).json().loja.id
+      for (const url of ['https://golpe.exemplo/x.jpg', `https://outroarmazem.public.blob.vercel-storage.com/produtos/${minha}/x.jpg`]) {
+        const r = await pedir(loja, 'POST', '/api/loja?acao=produto', 'A', { titulo: 'X', categoria: 'roupas', preco: '1,00', fotos: [url] })
+        expect(r.status, url).toBe(400)
+      }
+    })
+
+    it('nome reservado (o do administrador inicial) não pode ser usado por lojista', async () => {
+      for (const usuario of ['chefe', 'admin', 'suporte']) {
+        const r = await pedir(conta, 'POST', '/api/conta?acao=cadastrar', undefined, novaLoja(usuario, 'Falsa'))
+        expect(r.status, usuario).toBe(400)
+      }
     })
   })
 
@@ -129,7 +139,7 @@ describe.skipIf(!URL_DE_TESTE)('de ponta a ponta', () => {
     })
 
     it('vê a loja pendente e aprova; o produto entra no feed', async () => {
-      const lojas = (await pedir(admin, 'GET', '/api/admin?acao=lojas&estado=pendente', 'chefe')).json()
+      const lojas = (await pedir(admin, 'GET', '/api/admin?acao=lojas&estado=pendente', 'chefe')).json().lojas
       expect(lojas).toHaveLength(1)
       expect(lojas[0]).toMatchObject({ nome: 'Casa do Tênis', usuario: 'casa.tenis', produtos: 1, cidade: 'Cáceres - MT' })
       expect((await pedir(admin, 'POST', '/api/admin?acao=estado-da-loja', 'chefe', { id: lojas[0].id, estado: 'aprovada' })).status).toBe(204)
@@ -200,11 +210,32 @@ describe.skipIf(!URL_DE_TESTE)('de ponta a ponta', () => {
     it('chega ao admin, que tira o produto do ar', async () => {
       expect((await pedir(publico, 'POST', '/api/publico?acao=denuncia', undefined, { produtoId: tenisId, motivo: 'qualquer' })).status).toBe(400)
       expect((await pedir(publico, 'POST', '/api/publico?acao=denuncia', undefined, { produtoId: tenisId, motivo: 'golpe' })).status).toBe(201)
+      // A mesma pessoa denunciar de novo não soma.
+      const repetida = await pedir(publico, 'POST', '/api/publico?acao=denuncia', undefined, { produtoId: tenisId, motivo: 'golpe' }, { 'x-forwarded-for': '10.200.0.1' })
+      const repetida2 = await pedir(publico, 'POST', '/api/publico?acao=denuncia', undefined, { produtoId: tenisId, motivo: 'golpe' }, { 'x-forwarded-for': '10.200.0.1' })
+      expect([repetida.status, repetida2.status]).toEqual([201, 429])
       const denuncias = (await pedir(admin, 'GET', '/api/admin?acao=denuncias', 'chefe')).json()
-      expect(denuncias[0]).toMatchObject({ produtoId: tenisId, motivo: 'golpe', lojaNome: 'Casa do Tênis' })
+      expect(denuncias).toHaveLength(1)
+      expect(denuncias[0]).toMatchObject({ produtoId: tenisId, quantas: 2, motivos: ['golpe'], lojaNome: 'Casa do Tênis' })
       await pedir(admin, 'POST', '/api/admin?acao=tirar-do-ar', 'chefe', { produtoId: tenisId })
       expect((await feed()).some((p) => p.id === tenisId)).toBe(false)
       expect((await pedir(admin, 'GET', '/api/admin?acao=denuncias', 'chefe')).json()).toEqual([])
+    })
+
+    it('o lojista não põe de volta o que o administrador tirou do ar', async () => {
+      expect((await pedir(loja, 'POST', '/api/loja?acao=ativo', 'A', { id: tenisId, ativo: true })).status).toBe(404)
+      expect((await feed()).some((p) => p.id === tenisId)).toBe(false)
+      const meu = (await pedir(loja, 'GET', '/api/loja?acao=minha', 'A')).json().produtos.find((x: { id: string }) => x.id === tenisId)
+      expect(meu).toMatchObject({ removido: true })
+    })
+
+    it('apagar o produto apaga as fotos que ninguém mais usa', async () => {
+      const { del } = await import('@vercel/blob')
+      const id = await postar('A', 'Boné provisório')
+      const [linha] = await banco!.sql`select fotos from produtos where id = ${id}`
+      await pedir(loja, 'DELETE', `/api/loja?acao=produto&id=${id}`, 'A')
+      expect(del).toHaveBeenCalledWith(linha!.fotos)
+      expect(await banco!.sql`select url from fotos where url = any(${linha!.fotos as string[]})`).toEqual([])
     })
   })
 
@@ -229,11 +260,45 @@ describe.skipIf(!URL_DE_TESTE)('de ponta a ponta', () => {
   })
 
   describe('bloqueio', () => {
-    it('loja bloqueada sai do feed e o lojista perde a sessão', async () => {
+    it('loja bloqueada sai do feed, o lojista perde a sessão e não entra de novo', async () => {
       const lojaB = (await pedir(loja, 'GET', '/api/loja?acao=minha', 'B')).json().loja.id
       await pedir(admin, 'POST', '/api/admin?acao=estado-da-loja', 'chefe', { id: lojaB, estado: 'bloqueada' })
       expect((await feed()).some((p) => p.lojaNome === 'Moda Center')).toBe(false)
       expect((await pedir(loja, 'GET', '/api/loja?acao=minha', 'B')).status).toBe(401)
+      const deNovo = await pedir(conta, 'POST', '/api/conta?acao=entrar', undefined, { usuario: 'moda.center', senha: 'senha-forte-123' })
+      expect(deNovo.status).toBe(403)
+    })
+
+    it('um estranho não tranca o administrador do lado de fora', async () => {
+      for (let i = 0; i < 6; i++) {
+        await chamar(conta, 'POST', '/api/conta?acao=entrar', { corpo: { usuario: 'chefe', senha: `chute-${i}` }, cabecalhos: { ...MARCA, 'x-forwarded-for': '10.250.0.9' } })
+      }
+      const travado = await chamar(conta, 'POST', '/api/conta?acao=entrar', { corpo: { usuario: 'chefe', senha: 'senha-do-chefe-1' }, cabecalhos: { ...MARCA, 'x-forwarded-for': '10.250.0.9' } })
+      expect(travado.status).toBe(429)
+      const deOutroLugar = await chamar(conta, 'POST', '/api/conta?acao=entrar', { corpo: { usuario: 'chefe', senha: 'senha-do-chefe-1' }, cabecalhos: { ...MARCA, 'x-forwarded-for': '10.250.0.10' } })
+      expect(deOutroLugar.status).toBe(200)
+    })
+
+    it('usuário que não existe recebe a mesma resposta de senha errada', async () => {
+      const r1 = await pedir(conta, 'POST', '/api/conta?acao=entrar', undefined, { usuario: 'ninguem', senha: 'x' })
+      const r2 = await pedir(conta, 'POST', '/api/conta?acao=entrar', undefined, { usuario: 'casa.tenis', senha: 'errada-errada' })
+      expect([r1.status, r2.status]).toEqual([401, 401])
+      expect(r1.json()).toEqual(r2.json())
+    })
+
+    it('ADMIN_INICIAL com nome de lojista não transforma a conta do lojista em administrador', async () => {
+      const { embaralhar } = await import('../api/_senha')
+      const original = process.env.ADMIN_INICIAL
+      // Sem nenhum administrador ativo, a próxima entrada tenta criar o inicial.
+      await banco!.sql`update contas set ativo = false where papel = 'admin'`
+      process.env.ADMIN_INICIAL = `casa.tenis:${await embaralhar('outra-senha-123')}`
+      await pedir(conta, 'POST', '/api/conta?acao=entrar', undefined, { usuario: 'casa.tenis', senha: 'outra-senha-123' })
+      const [linha] = await banco!.sql`select papel from contas where usuario = 'casa.tenis'`
+      expect(linha?.papel).toBe('lojista')
+      // E a sessão aberta do lojista continua de lojista.
+      expect((await pedir(admin, 'GET', '/api/admin?acao=lojas', 'A')).status).toBe(403)
+      process.env.ADMIN_INICIAL = original
+      await banco!.sql`update contas set ativo = true where papel = 'admin'`
     })
 
     it('sair apaga a sessão', async () => {

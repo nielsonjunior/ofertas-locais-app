@@ -39,6 +39,8 @@ export interface ProdutoNaVitrine {
 /** O produto no painel do lojista: com os números dele. */
 export interface ProdutoDaLoja extends ProdutoNaVitrine {
   ativo: boolean
+  /** Tirado do ar pela administração; o lojista não reativa. */
+  removido: boolean
   vistas: number
   cliques: number
 }

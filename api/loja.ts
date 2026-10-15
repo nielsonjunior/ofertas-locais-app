@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { banco } from './_banco.js'
 import { exigirConta } from './_contas.js'
-import { fotosDaLoja, guardarFoto } from './_fotos.js'
+import { apagarFotosSemUso, fotosDaLoja, guardarFoto } from './_fotos.js'
 import { ErroDoCliente, lerBytes, lerJson, parametro, responderErro, responderJson, textoDe } from './_http.js'
 import { paraVitrine } from './_vitrine.js'
 import { validarLoja, validarProduto } from '../src/dominio/cadastro.js'
@@ -44,7 +44,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         const [l] = await sql`select id, cidade_id, nome, categoria, whatsapp, endereco, descricao, estado from lojas where id = ${loja}`
         if (!l) throw new ErroDoCliente('loja não encontrada', 404)
         const produtos = await sql`
-          select p.id, p.titulo, p.descricao, p.categoria, p.preco, p.preco_de, p.fotos, p.criado_em, p.ativo, p.vistas, p.cliques,
+          select p.id, p.titulo, p.descricao, p.categoria, p.preco, p.preco_de, p.fotos, p.criado_em, p.ativo, p.removido, p.vistas, p.cliques,
                  l.id as loja_id, l.nome as loja_nome, l.whatsapp as loja_whatsapp
             from produtos p join lojas l on l.id = p.loja_id
            where p.loja_id = ${loja} order by p.criado_em desc`
@@ -53,7 +53,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             id: l.id, cidadeId: l.cidade_id, nome: l.nome, categoria: l.categoria, whatsapp: l.whatsapp,
             endereco: l.endereco, descricao: l.descricao, estado: l.estado
           },
-          produtos: produtos.map((p) => ({ ...paraVitrine(p), ativo: p.ativo, vistas: p.vistas, cliques: p.cliques }))
+          produtos: produtos.map((p) => ({ ...paraVitrine(p), ativo: p.ativo, removido: p.removido, vistas: p.vistas, cliques: p.cliques }))
         })
         return
       }
@@ -77,7 +77,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
       case 'POST foto': {
         const bytes = await lerBytes(req, TAMANHO_DA_FOTO)
-        responderJson(res, 201, { url: await guardarFoto(loja, bytes) })
+        responderJson(res, 201, { url: await guardarFoto(sql, loja, bytes) })
         return
       }
 
@@ -85,7 +85,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       case 'PUT produto': {
         const corpo = await lerJson(req)
         const p = validar(() => validarProduto(corpo))
-        const fotos = JSON.stringify(fotosDaLoja(loja, corpo.fotos))
+        const listaDeFotos = await fotosDaLoja(sql, loja, corpo.fotos)
+        const fotos = JSON.stringify(listaDeFotos)
         if (req.method === 'POST') {
           const [conta] = await sql`select count(*)::int as total from produtos where loja_id = ${loja}`
           if (Number(conta?.total) >= PRODUTOS_POR_LOJA) throw new ErroDoCliente(`no máximo ${PRODUTOS_POR_LOJA} produtos por loja`)
@@ -94,11 +95,14 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
                     values (${id}, ${loja}, ${p.titulo}, ${p.descricao}, ${p.categoria}, ${p.preco}, ${p.precoDe}, ${fotos}::jsonb)`
           responderJson(res, 201, { id })
         } else {
-          const feitas = await sql`
+          const id = textoDe(corpo, 'id', 40)
+          const [antes] = await sql`select fotos from produtos where id = ${id} and loja_id = ${loja}`
+          if (!antes) throw new ErroDoCliente('produto não encontrado', 404)
+          await sql`
             update produtos set titulo = ${p.titulo}, descricao = ${p.descricao}, categoria = ${p.categoria},
                                 preco = ${p.preco}, preco_de = ${p.precoDe}, fotos = ${fotos}::jsonb
-             where id = ${textoDe(corpo, 'id', 40)} and loja_id = ${loja} returning id`
-          if (feitas.length === 0) throw new ErroDoCliente('produto não encontrado', 404)
+             where id = ${id} and loja_id = ${loja}`
+          await apagarFotosSemUso(sql, loja, (antes.fotos as string[]).filter((u) => !listaDeFotos.includes(u)))
           responderJson(res, 204, undefined)
         }
         return
@@ -106,16 +110,18 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
       case 'POST ativo': {
         const corpo = await lerJson(req)
+        // Produto removido pela administração não volta pelo botão do lojista.
         const feitas = await sql`update produtos set ativo = ${corpo.ativo === true}
-                                  where id = ${textoDe(corpo, 'id', 40)} and loja_id = ${loja} returning id`
-        if (feitas.length === 0) throw new ErroDoCliente('produto não encontrado', 404)
+                                  where id = ${textoDe(corpo, 'id', 40)} and loja_id = ${loja} and not removido returning id`
+        if (feitas.length === 0) throw new ErroDoCliente('produto não encontrado ou removido pela administração', 404)
         responderJson(res, 204, undefined)
         return
       }
 
       case 'DELETE produto': {
-        const feitas = await sql`delete from produtos where id = ${parametro(req, 'id')} and loja_id = ${loja} returning id`
+        const feitas = await sql`delete from produtos where id = ${parametro(req, 'id')} and loja_id = ${loja} returning fotos`
         if (feitas.length === 0) throw new ErroDoCliente('produto não encontrado', 404)
+        await apagarFotosSemUso(sql, loja, feitas[0]!.fotos as string[])
         responderJson(res, 204, undefined)
         return
       }

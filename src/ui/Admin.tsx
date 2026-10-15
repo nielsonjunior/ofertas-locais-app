@@ -65,11 +65,12 @@ function Lojas({ estado }: { estado: EstadoDaLoja | '' }) {
   }
   if (erro) return <p className="erro">{erro}</p>
   if (!dado) return <p className="suave">Carregando…</p>
-  if (dado.length === 0) return <p className="suave">Nenhuma loja aqui.</p>
+  if (dado.lojas.length === 0) return <p className="suave">Nenhuma loja aqui.</p>
   return (
     <div style={{ display: 'grid', gap: 10 }}>
       {falha && <p className="erro">{falha}</p>}
-      {dado.map((l) => (
+      {dado.total > dado.lojas.length && <p className="aviso pequeno">Mostrando as {dado.lojas.length} mais antigas de {dado.total}.</p>}
+      {dado.lojas.map((l) => (
         <div key={l.id} className="cartao linha-admin">
           <div className="linha"><strong style={{ marginRight: 'auto' }}>{l.nome}</strong><span className={`estado ${l.estado}`}>{l.estado}</span></div>
           <div className="pequeno suave">{nomeDaCategoria(l.categoria)} · {l.cidade} · usuário {l.usuario} · {l.produtos} {l.produtos === 1 ? "produto" : "produtos"}</div>
@@ -108,16 +109,18 @@ function Denuncias() {
     <div style={{ display: 'grid', gap: 10 }}>
       {falha && <p className="erro">{falha}</p>}
       {dado.map((d) => (
-        <div key={d.id} className="cartao" style={{ display: 'grid', gridTemplateColumns: '72px 1fr', gap: 12 }}>
+        <div key={d.produtoId} className="cartao" style={{ display: 'grid', gridTemplateColumns: '72px 1fr', gap: 12 }}>
           {d.foto ? <img src={d.foto} alt="" style={{ width: 72, height: 96, objectFit: 'cover', borderRadius: 8 }} /> : <div />}
           <div className="linha-admin">
             <strong>{d.titulo}</strong>
             <div className="pequeno">{emReais(d.preco)} · {d.lojaNome}{!d.ativo && ' · fora do ar'}</div>
-            <div className="pequeno suave">{MOTIVOS_DE_DENUNCIA.find((m) => m.id === d.motivo)?.nome ?? d.motivo}</div>
+            <div className="pequeno suave">
+              {d.quantas} {d.quantas === 1 ? 'denúncia' : 'denúncias'}: {d.motivos.map((m) => MOTIVOS_DE_DENUNCIA.find((x) => x.id === m)?.nome ?? m).join(', ')}
+            </div>
             <div className="linha">
               {d.ativo && <Link para={`/p/${d.produtoId}`} className="botao claro pequeno">Ver</Link>}
               <button className="botao pequeno" onClick={() => fazer(() => administrador.tirarDoAr(d.produtoId))}>Tirar do ar</button>
-              <button className="botao claro pequeno" onClick={() => fazer(() => administrador.resolver(d.id))}>Sem problema</button>
+              <button className="botao claro pequeno" onClick={() => fazer(() => administrador.resolver(d.produtoId))}>Sem problema</button>
             </div>
           </div>
         </div>

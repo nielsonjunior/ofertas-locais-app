@@ -50,9 +50,7 @@ const TABELAS = [
     senha text not null,
     papel text not null check (papel in ('admin', 'lojista')),
     loja_id text references lojas(id) on delete cascade,
-    ativo boolean not null default true,
-    erros integer not null default 0,
-    bloqueado_ate timestamptz
+    ativo boolean not null default true
   )`,
   // O token da sessão fica só no cookie; aqui vai o hash dele.
   `create table if not exists sessoes (
@@ -60,7 +58,8 @@ const TABELAS = [
     usuario text not null references contas(usuario) on delete cascade,
     expira_em timestamptz not null
   )`,
-  // Freio por endereço de internet (login, cadastro, denúncia), numa janela de 15 minutos.
+  // Contadores dos freios (login, cadastro, denúncia, vistas), numa janela de
+  // 15 minutos. A chave diz o assunto e de quem: "entrar:1.2.3.4".
   `create table if not exists tentativas (
     endereco text primary key,
     janela timestamptz not null,
@@ -76,10 +75,20 @@ const TABELAS = [
     preco_de integer,
     fotos jsonb not null default '[]',
     ativo boolean not null default true,
+    -- Tirado do ar pela administração: o lojista não reativa (ativo é só dele).
+    removido boolean not null default false,
     criado_em timestamptz not null default now(),
     vistas integer not null default 0,
     cliques integer not null default 0
   )`,
+  // Toda foto enviada, com a loja dona. O produto só aceita foto desta lista:
+  // assim não entra endereço de outro armazém, nem de outra loja.
+  `create table if not exists fotos (
+    url text primary key,
+    loja_id text not null references lojas(id) on delete cascade,
+    criada_em timestamptz not null default now()
+  )`,
+  `create index if not exists fotos_da_loja on fotos (loja_id, criada_em)`,
   `create index if not exists produtos_da_loja on produtos (loja_id, criado_em desc)`,
   `create table if not exists denuncias (
     id text primary key,
