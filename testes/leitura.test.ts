@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { EsquemaDaLeitura, limparLeitura } from '../src/dominio/leitura'
+import type { Leitura } from '../src/dominio/leitura'
 
-function item(parcial: Record<string, unknown>) {
+function item(parcial: Record<string, unknown>): Leitura['ofertas'][number] {
   return {
     produto: 'Arroz Tipo 1', marca: 'Tio João', quantidade: '5 kg',
     preco: '27,99', precoDe: null, condicao: null, certeza: 'alta', ...parcial
-  }
+  } as Leitura['ofertas'][number]
 }
 
 describe('EsquemaDaLeitura', () => {
