@@ -1,5 +1,7 @@
 # Ofertas Locais — o panfleto do mercado no celular, no site e no WhatsApp
 
+> **Substituído em 2026-10-16** pela [vitrine local](../specs/2026-10-16-vitrine-local-design.md). O código deste desenho está no commit `6eadda4`.
+
 Data: 2026-10-15
 
 ## O problema
