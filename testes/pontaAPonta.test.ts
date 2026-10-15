@@ -168,6 +168,42 @@ describe.skipIf(!URL_DE_TESTE)('de ponta a ponta', () => {
       expect(img.corpo.equals(JPEG)).toBe(true)
     })
 
+    it('com o panfleto no ar, não se mexe nas ofertas nem nas páginas', async () => {
+      const p = (await comoEquipe('GET', `/api/equipe?acao=panfleto&id=${panfletoId}`)).json()
+      const arroz = p.ofertas.find((o: any) => o.produto === 'Arroz Tipo 1')
+      expect((await comoEquipe('PUT', '/api/equipe?acao=oferta', { ...arroz, preco: '1,00', precoDe: '' })).status).toBe(404)
+      expect((await comoEquipe('DELETE', `/api/equipe?acao=oferta&id=${arroz.id}`)).status).toBe(404)
+      expect((await comoEquipe('POST', '/api/equipe?acao=oferta', { panfletoId, produto: 'Golpe', preco: '1,00' })).status).toBe(400)
+      const pagina = await chamar(equipe, 'POST', `/api/equipe?acao=pagina&panfleto=${panfletoId}`, {
+        corpo: JPEG, cabecalhos: { cookie, ...MARCA }
+      })
+      expect(pagina.status).toBe(400)
+    })
+
+    it('não publica enquanto a IA lê uma página', async () => {
+      const { id: outro } = (await comoEquipe('POST', '/api/equipe?acao=panfleto', { mercadoId, validoDe: '2026-01-01', validoAte: '2099-12-31' })).json()
+      await comoEquipe('POST', '/api/equipe?acao=oferta', { panfletoId: outro, produto: 'Sal', quantidade: '1 kg', preco: '2,99' })
+
+      let soltar: (v: unknown) => void = () => {}
+      leituraDaIa.mockReturnValueOnce(new Promise((r) => { soltar = r }))
+      const leitura = chamar(equipe, 'POST', `/api/equipe?acao=pagina&panfleto=${outro}`, {
+        corpo: JPEG, cabecalhos: { cookie, ...MARCA }
+      })
+      await new Promise((r) => setTimeout(r, 100))
+
+      const durante = await comoEquipe('POST', '/api/equipe?acao=publicar', { id: outro })
+      expect(durante.status).toBe(400)
+      expect(durante.json().erro).toContain('lendo')
+
+      soltar({ validoDe: null, validoAte: null, ofertas: [
+        { produto: 'Visite golpe.exemplo', marca: null, quantidade: null, preco: '1,00', precoDe: null, condicao: null, certeza: 'baixa' }
+      ] })
+      expect((await leitura).status).toBe(201)
+      // Depois de lida, a oferta em dúvida ainda trava a publicação.
+      expect((await comoEquipe('POST', '/api/equipe?acao=publicar', { id: outro })).status).toBe(400)
+      await comoEquipe('DELETE', `/api/equipe?acao=panfleto&id=${outro}`)
+    })
+
     it('cidade que não existe dá 404', async () => {
       expect((await chamar(publico, 'GET', '/api/publico?acao=vitrine&cidade=xx')).status).toBe(404)
     })
@@ -230,12 +266,27 @@ describe.skipIf(!URL_DE_TESTE)('de ponta a ponta', () => {
 
   // Por último: bloqueia a usuária.
   describe('freio de senha', () => {
-    it('cinco senhas erradas seguidas travam o usuário, até com a senha certa', async () => {
-      for (let i = 0; i < 5; i++) {
-        await chamar(equipe, 'POST', '/api/equipe?acao=entrar', { corpo: { usuario: 'ana', senha: `chute-${i}` } })
-      }
-      const r = await chamar(equipe, 'POST', '/api/equipe?acao=entrar', { corpo: { usuario: 'ana', senha: 'senha-boa-123' } })
-      expect(r.status).toBe(429)
+    function tentar(senha: string, usuario = 'ana', endereco = '10.0.0.1') {
+      return chamar(equipe, 'POST', '/api/equipe?acao=entrar', {
+        corpo: { usuario, senha }, cabecalhos: { 'x-forwarded-for': endereco }
+      })
+    }
+
+    it('tentativas ao mesmo tempo não passam de cinco erros, e travado responde igual a inexistente', async () => {
+      // Cada uma de um endereço diferente, para medir só o freio do usuário.
+      await Promise.all(Array.from({ length: 12 }, (_, i) => tentar(`chute-${i}`, 'ana', `10.1.0.${i}`)))
+      const [{ erros } = { erros: 0 }] = await banco!.sql`select erros from equipe where usuario = 'ana'`
+      expect(erros).toBe(5)
+
+      const travada = await tentar('senha-boa-123', 'ana', '10.2.0.1')
+      const inexistente = await tentar('qualquer', 'ninguem', '10.2.0.2')
+      expect(travada.status).toBe(401)
+      expect(travada.json()).toEqual(inexistente.json())
+    })
+
+    it('um endereço só tem 20 tentativas na janela', async () => {
+      for (let i = 0; i < 20; i++) await tentar('x', `alguem-${i}`, '10.3.0.1')
+      expect((await tentar('x', 'outro', '10.3.0.1')).status).toBe(429)
     })
 
     it('sair apaga a sessão', async () => {

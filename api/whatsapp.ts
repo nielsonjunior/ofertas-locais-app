@@ -44,7 +44,8 @@ async function atender(sql: Sql, msg: Recebida, siteUrl: string): Promise<void> 
   const ctx: Contexto = { cidades: todas, panfletos, ofertas, siteUrl }
   const resultado = responder(contato, msg.texto, ctx, msg.de)
 
-  if (resultado.contato) {
+  // Só guardamos o número de quem escolheu a cidade; o resto não precisa ficar (LGPD).
+  if (resultado.contato?.cidadeId) {
     await sql`insert into contatos (wa_id, cidade_id, atualizado_em) values (${msg.de}, ${resultado.contato.cidadeId}, now())
               on conflict (wa_id) do update set cidade_id = excluded.cidade_id, atualizado_em = now()`
   } else {
@@ -88,10 +89,13 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       try {
         await atender(sql, msg, siteUrl)
       } catch (erro) {
-        console.error('não consegui responder a mensagem', msg.id, erro)
+        // Sem o número nem o texto no log: só o id da mensagem e o erro.
+        console.error('não consegui responder a mensagem', msg.id, erro instanceof Error ? erro.message : 'erro')
       }
     }
     await sql`delete from mensagens_vistas where em < now() - interval '7 days'`
+    // Quem não fala com a gente há seis meses sai do banco (LGPD).
+    await sql`delete from contatos where atualizado_em < now() - interval '180 days'`
     responderJson(res, 200, { ok: true })
   } catch (erro) {
     responderErro(res, erro)

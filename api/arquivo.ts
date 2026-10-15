@@ -24,9 +24,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const numero = Number(parametro(req, 'pagina'))
     if (!Number.isInteger(numero) || numero < 1) throw new ErroDoCliente('página inválida')
 
-    const [p] = await sql`select estado, paginas from panfletos where id = ${id}`
+    const [p] = await sql`
+      select p.estado, p.paginas, m.ativo from panfletos p join mercados m on m.id = p.mercado_id where p.id = ${id}`
     if (!p) throw new ErroDoCliente('panfleto não encontrado', 404)
-    const publico = p.estado === 'publicado'
+    // Mesma regra de /api/publico: publicado e de mercado ativo.
+    const publico = p.estado === 'publicado' && p.ativo === true
     if (!publico && !(await quemEsta(req))) throw new ErroDoCliente('panfleto não encontrado', 404)
 
     const pagina = (p.paginas as Pagina[])[numero - 1]

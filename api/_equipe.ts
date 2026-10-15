@@ -14,6 +14,7 @@ import {
 
 const ERROS_ANTES_DO_FREIO = 5
 const MINUTOS_DE_FREIO = 15
+const TENTATIVAS_POR_ENDERECO = 20
 
 function hashDoToken(token: string): string {
   return createHash('sha256').update(token).digest('hex')
@@ -33,29 +34,52 @@ async function garantirPrimeiro(sql: Sql): Promise<void> {
             on conflict (usuario) do update set senha = excluded.senha, ativo = true, erros = 0, bloqueado_ate = null`
 }
 
-export async function entrar(res: ServerResponse, usuarioDigitado: string, senha: string): Promise<string> {
+/** O endereço de quem pede. Na Vercel, o primeiro de x-forwarded-for é posto pela própria Vercel. */
+function enderecoDe(req: IncomingMessage): string {
+  const encaminhado = String(req.headers['x-forwarded-for'] ?? '').split(',')[0]?.trim()
+  return (encaminhado || req.socket?.remoteAddress || 'desconhecido').slice(0, 64)
+}
+
+/**
+ * Mesma resposta para usuário inexistente, senha errada e usuário travado:
+ * quem está de fora não descobre quem existe nem quem travou.
+ */
+const NAO_CONFERE = `usuário ou senha não conferem (depois de ${ERROS_ANTES_DO_FREIO} erros, o acesso trava por ${MINUTOS_DE_FREIO} minutos)`
+
+export async function entrar(req: IncomingMessage, res: ServerResponse, usuarioDigitado: string, senha: string): Promise<string> {
   const sql = await banco()
   await garantirPrimeiro(sql)
   const usuario = usuarioDigitado.trim().toLowerCase()
 
-  const [linha] = await sql`select senha, ativo, erros, bloqueado_ate from equipe where usuario = ${usuario}`
-  const bloqueado = linha?.bloqueado_ate && new Date(String(linha.bloqueado_ate)) > new Date()
-  // O hash roda sempre, até para usuário inexistente ou bloqueado: o tempo da
-  // resposta não conta quem existe.
-  const ok = await confereEmTempoConstante(senha, linha?.ativo ? String(linha.senha) : undefined)
-
-  if (bloqueado) throw new ErroDoCliente(`muitas tentativas; espere ${MINUTOS_DE_FREIO} minutos`, 429)
-  if (!ok || !linha) {
-    if (linha) {
-      await sql`update equipe set erros = erros + 1,
-                  bloqueado_ate = case when erros + 1 >= ${ERROS_ANTES_DO_FREIO}
-                                       then now() + make_interval(mins => ${MINUTOS_DE_FREIO}) end
-                 where usuario = ${usuario}`
-    }
-    throw new ErroDoCliente('usuário ou senha não conferem', 401)
+  // Freio por endereço: impede que alguém de fora fique travando a equipe
+  // ou chutando senha de vários usuários.
+  const [porEndereco] = await sql`
+    insert into tentativas (endereco, janela, total) values (${enderecoDe(req)}, now(), 1)
+    on conflict (endereco) do update set
+      total = case when tentativas.janela < now() - make_interval(mins => ${MINUTOS_DE_FREIO}) then 1 else tentativas.total + 1 end,
+      janela = case when tentativas.janela < now() - make_interval(mins => ${MINUTOS_DE_FREIO}) then now() else tentativas.janela end
+    returning total`
+  if (Number(porEndereco?.total) > TENTATIVAS_POR_ENDERECO) {
+    throw new ErroDoCliente(`muitas tentativas deste endereço; espere ${MINUTOS_DE_FREIO} minutos`, 429)
   }
 
+  // A tentativa é reservada antes de conferir a senha, numa instrução só: cem
+  // pedidos ao mesmo tempo não passam do limite, porque o banco faz fila na linha.
+  const [reserva] = await sql`
+    update equipe set
+      erros = case when bloqueado_ate < now() then 1 else erros + 1 end,
+      bloqueado_ate = case when (case when bloqueado_ate < now() then 1 else erros + 1 end) >= ${ERROS_ANTES_DO_FREIO}
+                           then now() + make_interval(mins => ${MINUTOS_DE_FREIO}) end
+     where usuario = ${usuario} and ativo and (bloqueado_ate is null or bloqueado_ate < now())
+    returning senha`
+
+  // O hash roda sempre, até para usuário inexistente ou travado: o tempo da
+  // resposta não conta quem existe.
+  const ok = await confereEmTempoConstante(senha, reserva ? String(reserva.senha) : undefined)
+  if (!ok) throw new ErroDoCliente(NAO_CONFERE, 401)
+
   await sql`update equipe set erros = 0, bloqueado_ate = null where usuario = ${usuario}`
+  await sql`delete from tentativas where janela < now() - interval '1 day'`
   const token = novoToken()
   await sql`insert into sessoes (token_hash, usuario, expira_em)
             values (${hashDoToken(token)}, ${usuario}, now() + make_interval(days => ${DIAS_DE_SESSAO}))`

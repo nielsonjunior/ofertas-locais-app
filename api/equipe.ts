@@ -79,10 +79,18 @@ async function lerUmaPagina(req: IncomingMessage, sql: Sql, panfletoId: string) 
   await put(caminho, bytes, { access: 'private', contentType: tipo, addRandomSuffix: false })
   const numero = paginas.length + 1
   // A página entra antes da leitura: se a IA falhar, ela fica guardada e a
-  // equipe digita as ofertas à mão.
-  await sql`update panfletos set paginas = paginas || ${JSON.stringify([{ caminho, tipo }])}::jsonb,
-                                 estado = 'conferir'
-             where id = ${panfletoId}`
+  // equipe digita as ofertas à mão. Enquanto a IA lê, lendo_ate trava a
+  // publicação — senão alguém publica no meio e as ofertas lidas entram no ar
+  // sem conferência. A trava vence sozinha depois do tempo máximo da função.
+  const marcado = await sql`
+    update panfletos set paginas = paginas || ${JSON.stringify([{ caminho, tipo }])}::jsonb,
+                         estado = 'conferir', lendo_ate = now() + interval '3 minutes'
+     where id = ${panfletoId} and estado <> 'publicado'
+    returning id`
+  if (marcado.length === 0) {
+    await del(caminho).catch(() => {})
+    throw new ErroDoCliente('despublique antes de mexer nas páginas')
+  }
 
   try {
     const leitura = limparLeitura(await lerPagina(bytes, tipo, hojeEmCuiaba()), numero)
@@ -103,7 +111,16 @@ async function lerUmaPagina(req: IncomingMessage, sql: Sql, panfletoId: string) 
     console.error('leitura da página falhou', erro)
     const aviso = erro instanceof LeituraRecusada ? erro.message : 'a leitura automática falhou'
     return { pagina: numero, lidas: 0, descartadas: 0, aviso: `${aviso}; digite as ofertas desta página à mão` }
+  } finally {
+    // Só depois das ofertas gravadas: quem publicar daqui em diante já as vê.
+    await sql`update panfletos set lendo_ate = null where id = ${panfletoId}`
   }
+}
+
+/** Mexer em oferta só com o panfleto fora do ar: o que está no ar passou pela conferência. */
+async function exigirForaDoAr(sql: Sql, panfletoId: string): Promise<void> {
+  const p = await panfletoDaEquipe(sql, panfletoId)
+  if (p.estado === 'publicado') throw new ErroDoCliente('tire o panfleto do ar antes de mexer nas ofertas')
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
@@ -113,7 +130,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     if (acao === 'entrar' && metodo === 'POST') {
       const corpo = await lerJson(req)
-      const usuario = await entrar(res, textoDe(corpo, 'usuario', 60), String(corpo.senha ?? ''))
+      const usuario = await entrar(req, res, textoDe(corpo, 'usuario', 60), String(corpo.senha ?? ''))
       responderJson(res, 200, { usuario })
       return
     }
@@ -250,28 +267,40 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         }
         if (metodo === 'POST') {
           const panfletoId = textoDe(corpo, 'panfletoId', 40)
+          await exigirForaDoAr(sql, panfletoId)
           const p = await panfletoDaEquipe(sql, panfletoId)
           const pagina = Math.max(1, Math.min(Number(corpo.pagina) || 1, (p.paginas as unknown[]).length || 1))
           const id = novoId()
-          await sql`insert into ofertas (id, panfleto_id, produto, marca, quantidade, preco, preco_de, condicao, pagina, confianca)
-                    values (${id}, ${panfletoId}, ${oferta.produto}, ${oferta.marca}, ${oferta.quantidade},
-                            ${oferta.preco}, ${oferta.precoDe}, ${oferta.condicao}, ${pagina}, 'alta')`
+          // A condição vai na própria instrução: se publicarem entre a conferência acima e aqui, nada entra.
+          const feitas = await sql`
+            insert into ofertas (id, panfleto_id, produto, marca, quantidade, preco, preco_de, condicao, pagina, confianca)
+            select ${id}, ${panfletoId}, ${oferta.produto}, ${oferta.marca}, ${oferta.quantidade},
+                   ${oferta.preco}, ${oferta.precoDe}, ${oferta.condicao}, ${pagina}, 'alta'
+             where exists (select 1 from panfletos where id = ${panfletoId} and estado <> 'publicado')
+            returning id`
+          if (feitas.length === 0) throw new ErroDoCliente('tire o panfleto do ar antes de mexer nas ofertas')
           responderJson(res, 201, { id })
         } else {
           const id = textoDe(corpo, 'id', 40)
           const feitas = await sql`
-            update ofertas set produto = ${oferta.produto}, marca = ${oferta.marca}, quantidade = ${oferta.quantidade},
+            update ofertas o set produto = ${oferta.produto}, marca = ${oferta.marca}, quantidade = ${oferta.quantidade},
                                preco = ${oferta.preco}, preco_de = ${oferta.precoDe}, condicao = ${oferta.condicao},
                                confianca = 'alta'
-             where id = ${id} returning id`
-          if (feitas.length === 0) throw new ErroDoCliente('oferta não encontrada', 404)
+              from panfletos p
+             where o.id = ${id} and p.id = o.panfleto_id and p.estado <> 'publicado'
+            returning o.id`
+          if (feitas.length === 0) throw new ErroDoCliente('oferta não encontrada, ou o panfleto está no ar', 404)
           responderJson(res, 204, undefined)
         }
         return
       }
 
       case 'DELETE oferta': {
-        await sql`delete from ofertas where id = ${parametro(req, 'id')}`
+        const feitas = await sql`
+          delete from ofertas o using panfletos p
+           where o.id = ${parametro(req, 'id')} and p.id = o.panfleto_id and p.estado <> 'publicado'
+          returning o.id`
+        if (feitas.length === 0) throw new ErroDoCliente('oferta não encontrada, ou o panfleto está no ar', 404)
         responderJson(res, 204, undefined)
         return
       }
@@ -283,13 +312,27 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         if (!dataValida(String(p.valido_de)) || !dataValida(String(p.valido_ate))) {
           throw new ErroDoCliente('preencha a validade antes de publicar')
         }
-        if (String(p.valido_ate) < hojeEmCuiaba()) throw new ErroDoCliente('este panfleto já venceu')
-        const [conta] = await sql`
-          select count(*)::int as total, count(*) filter (where confianca = 'baixa')::int as duvidas
-            from ofertas where panfleto_id = ${id}`
-        if (!conta || conta.total === 0) throw new ErroDoCliente('o panfleto não tem nenhuma oferta')
-        if (conta.duvidas > 0) throw new ErroDoCliente(`confira as ${conta.duvidas} ofertas marcadas em amarelo antes de publicar`)
-        await sql`update panfletos set estado = 'publicado', publicado_em = now() where id = ${id}`
+        const hoje = hojeEmCuiaba()
+        if (String(p.valido_ate) < hoje) throw new ErroDoCliente('este panfleto já venceu')
+        // Tudo conferido numa instrução só, para não haver brecha entre conferir e publicar.
+        const feitas = await sql`
+          update panfletos set estado = 'publicado', publicado_em = now()
+           where id = ${id} and estado <> 'publicado'
+             and (lendo_ate is null or lendo_ate < now())
+             and valido_ate >= ${hoje}
+             and exists (select 1 from ofertas where panfleto_id = ${id})
+             and not exists (select 1 from ofertas where panfleto_id = ${id} and confianca = 'baixa')
+          returning id`
+        if (feitas.length === 0) {
+          const [conta] = await sql`
+            select count(*)::int as total, count(*) filter (where confianca = 'baixa')::int as duvidas
+              from ofertas where panfleto_id = ${id}`
+          const [agora] = await sql`select estado, lendo_ate > now() as lendo from panfletos where id = ${id}`
+          if (agora?.estado === 'publicado') throw new ErroDoCliente('este panfleto já está no ar')
+          if (agora?.lendo) throw new ErroDoCliente('ainda lendo uma página; espere terminar')
+          if (!conta || conta.total === 0) throw new ErroDoCliente('o panfleto não tem nenhuma oferta')
+          throw new ErroDoCliente(`confira as ${conta.duvidas} ofertas marcadas em amarelo antes de publicar`)
+        }
         responderJson(res, 204, undefined)
         return
       }

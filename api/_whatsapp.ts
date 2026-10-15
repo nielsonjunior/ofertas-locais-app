@@ -9,7 +9,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
  * existe na fase 1.
  */
 
-const VERSAO_DA_API = 'v23.0'
+const VERSAO_DA_API = process.env.WHATSAPP_VERSAO_API ?? 'v23.0'
 
 /**
  * A Meta assina o corpo com HMAC-SHA256 usando o segredo do app e manda em
@@ -79,6 +79,8 @@ export async function enviarTexto(para: string, texto: string): Promise<void> {
     })
   })
   if (!resposta.ok) {
-    throw new Error(`WhatsApp recusou o envio: ${resposta.status} ${await resposta.text().catch(() => '')}`)
+    // Só o código do erro: o corpo da Meta pode trazer o número da pessoa.
+    const corpo = await resposta.json().catch(() => ({})) as { error?: { code?: unknown } }
+    throw new Error(`WhatsApp recusou o envio: ${resposta.status} código ${String(corpo.error?.code ?? '?')}`)
   }
 }

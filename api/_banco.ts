@@ -49,7 +49,9 @@ const TABELAS = [
     paginas jsonb not null default '[]',
     criado_por text not null,
     criado_em timestamptz not null default now(),
-    publicado_em timestamptz
+    publicado_em timestamptz,
+    -- Enquanto a IA lê uma página, não se publica (ver api/equipe.ts).
+    lendo_ate timestamptz
   )`,
   `create index if not exists panfletos_vitrine on panfletos (estado, valido_ate)`,
   `create table if not exists ofertas (
@@ -82,6 +84,12 @@ const TABELAS = [
     ativo boolean not null default true,
     erros integer not null default 0,
     bloqueado_ate timestamptz
+  )`,
+  // Tentativas de login por endereço de internet, numa janela de 15 minutos.
+  `create table if not exists tentativas (
+    endereco text primary key,
+    janela timestamptz not null,
+    total integer not null
   )`,
   // O token da sessão fica só no cookie; aqui vai o hash dele.
   `create table if not exists sessoes (
