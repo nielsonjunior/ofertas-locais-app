@@ -1,31 +1,27 @@
 import { describe, expect, it } from 'vitest'
 import { responder } from '../src/dominio/conversa'
-import type { Contexto, Contato } from '../src/dominio/conversa'
-import type { OfertaNaVitrine } from '../src/dominio/tipos'
+import type { Contato, Contexto } from '../src/dominio/conversa'
+import type { ProdutoNaVitrine } from '../src/dominio/tipos'
 
 const cidades = [
   { id: 'caceres-mt', nome: 'Cáceres', uf: 'MT' },
   { id: 'cuiaba-mt', nome: 'Cuiabá', uf: 'MT' }
 ]
 
-function oferta(id: string, produto: string, quantidade: string, preco: number, mercadoNome = 'Atacadão'): OfertaNaVitrine {
+function produto(id: string, titulo: string, preco: number, lojaNome = 'Casa do Tênis'): ProdutoNaVitrine {
   return {
-    id, produto, marca: '', quantidade, preco, precoDe: null, condicao: '',
-    mercadoId: mercadoNome.toLowerCase(), mercadoNome, panfletoId: `p-${mercadoNome}`
+    id, titulo, descricao: '', categoria: 'roupas', preco, precoDe: null, fotos: ['https://img/x.jpg'],
+    lojaId: lojaNome.toLowerCase().replace(/ /g, '-'), lojaNome, lojaWhatsapp: '65999990000', criadoEm: '2026-10-16'
   }
 }
 
 const ctx: Contexto = {
   cidades,
   siteUrl: 'https://ofertas.exemplo',
-  panfletos: [
-    { id: 'p-Atacadão', mercadoNome: 'Atacadão', validoAte: '2026-10-19' },
-    { id: 'p-Comper', mercadoNome: 'Comper', validoAte: '2026-10-18' }
-  ],
-  ofertas: [
-    oferta('a', 'Arroz Tipo 1', '5 kg', 2799),
-    oferta('b', 'Arroz Tipo 1', '5 kg', 2599, 'Comper'),
-    oferta('c', 'Feijão Carioca', '1 kg', 799)
+  produtos: [
+    produto('a', 'Tênis Nike Revolution', 34990),
+    produto('b', 'Tênis Olympikus', 19990, 'Moda Center'),
+    produto('c', 'Camiseta Polo', 5990, 'Moda Center')
   ]
 }
 
@@ -38,21 +34,14 @@ function texto(r: ReturnType<typeof responder>): string {
 
 describe('quem ainda não tem cidade', () => {
   it('recebe a lista de cidades numerada', () => {
-    const r = responder(null, 'oi', ctx, '5565999990000')
+    const r = responder(null, 'oi', ctx, novo.waId)
     expect(r.contato).toEqual(novo)
     expect(texto(r)).toContain('1. Cáceres - MT')
-    expect(texto(r)).toContain('2. Cuiabá - MT')
   })
 
-  it('escolhe pelo número', () => {
-    const r = responder(novo, '1', ctx, novo.waId)
-    expect(r.contato?.cidadeId).toBe('caceres-mt')
-    expect(texto(r)).toContain('Cáceres')
-  })
-
-  it('escolhe pelo nome, sem acento', () => {
-    const r = responder(novo, 'cuiaba', ctx, novo.waId)
-    expect(r.contato?.cidadeId).toBe('cuiaba-mt')
+  it('escolhe pelo número ou pelo nome sem acento', () => {
+    expect(responder(novo, '1', ctx, novo.waId).contato?.cidadeId).toBe('caceres-mt')
+    expect(responder(novo, 'cuiaba', ctx, novo.waId).contato?.cidadeId).toBe('cuiaba-mt')
   })
 
   it('número fora da lista pergunta de novo', () => {
@@ -63,84 +52,58 @@ describe('quem ainda não tem cidade', () => {
 })
 
 describe('quem já tem cidade', () => {
-  it('busca e mostra o mais barato primeiro, com o mercado', () => {
-    const r = responder(pronto, 'arroz', ctx, pronto.waId)
-    const t = texto(r)
-    expect(t.indexOf('Comper')).toBeLessThan(t.indexOf('Atacadão'))
-    expect(t).toContain('R$ 25,99')
-    expect(t).toContain('R$ 5,20/kg')
-    expect(t).toContain('https://ofertas.exemplo/busca?cidade=caceres-mt&q=arroz')
+  it('busca produtos e manda o link de cada um, com loja e preço', () => {
+    const t = texto(responder(pronto, 'tenis', ctx, pronto.waId))
+    expect(t).toContain('*Tênis Nike Revolution* — R$ 349,90')
+    expect(t).toContain('Casa do Tênis')
+    expect(t).toContain('https://ofertas.exemplo/p/a')
+    expect(t).toContain('https://ofertas.exemplo/busca?cidade=caceres-mt&q=tenis')
   })
 
-  it('mostra no máximo 5 ofertas', () => {
-    const muitas = Array.from({ length: 8 }, (_, i) => oferta(`x${i}`, 'Leite Integral', '1 L', 400 + i))
-    const r = responder(pronto, 'leite', { ...ctx, ofertas: muitas }, pronto.waId)
-    expect(texto(r).match(/Leite Integral/g)).toHaveLength(5)
+  it('mostra no máximo 5', () => {
+    const muitos = Array.from({ length: 8 }, (_, i) => produto(`x${i}`, `Boné modelo ${i}`, 3000 + i))
+    const t = texto(responder(pronto, 'boné', { ...ctx, produtos: muitos }, pronto.waId))
+    expect(t.match(/Boné modelo/g)).toHaveLength(5)
+    expect(t).toContain('Ver os 8')
   })
 
   it('diz quando não achou', () => {
-    const r = responder(pronto, 'picanha', ctx, pronto.waId)
-    expect(texto(r)).toContain('Não achei "picanha"')
+    expect(texto(responder(pronto, 'geladeira', ctx, pronto.waId))).toContain('Não achei "geladeira"')
   })
 
-  it('PANFLETOS lista os panfletos valendo, com link', () => {
-    const r = responder(pronto, 'Panfletos', ctx, pronto.waId)
-    expect(texto(r)).toContain('Atacadão')
-    expect(texto(r)).toContain('https://ofertas.exemplo/panfleto/p-Comper')
-    expect(texto(r)).toContain('até 18/10')
-  })
-
-  it('PANFLETOS sem nenhum valendo avisa', () => {
-    const r = responder(pronto, 'panfletos', { ...ctx, panfletos: [] }, pronto.waId)
-    expect(texto(r)).toContain('Ainda não há panfleto valendo em Cáceres')
-  })
-
-  it('o nome de um mercado manda o panfleto dele', () => {
-    const r = responder(pronto, 'comper', ctx, pronto.waId)
-    expect(texto(r)).toContain('https://ofertas.exemplo/panfleto/p-Comper')
-  })
-
-  it('"ofertas do Atacadão" e "panfleto da Comper" também', () => {
-    expect(texto(responder(pronto, 'ofertas do Atacadão', ctx, pronto.waId))).toContain('/panfleto/p-Atacad')
-    expect(texto(responder(pronto, 'Panfleto da comper', ctx, pronto.waId))).toContain('/panfleto/p-Comper')
+  it('o nome de uma loja manda a vitrine dela', () => {
+    const t = texto(responder(pronto, 'moda center', ctx, pronto.waId))
+    expect(t).toContain('https://ofertas.exemplo/loja/moda-center')
   })
 
   it('oi mostra o que dá para fazer', () => {
-    const r = responder(pronto, 'Oi!', ctx, pronto.waId)
-    expect(texto(r)).toContain('PANFLETOS')
-    expect(texto(r)).toContain('CIDADE')
+    const t = texto(responder(pronto, 'Oi!', ctx, pronto.waId))
+    expect(t).toContain('CIDADE')
+    expect(t).toContain('SAIR')
   })
 
   it('CIDADE volta para a escolha', () => {
     const r = responder(pronto, 'cidade', ctx, pronto.waId)
     expect(r.contato?.cidadeId).toBeNull()
-    expect(texto(r)).toContain('1. Cáceres - MT')
   })
 
   it('cidade que saiu do ar volta para a escolha', () => {
-    const sumiu: Contato = { waId: pronto.waId, cidadeId: 'rondonopolis-mt' }
-    const r = responder(sumiu, 'arroz', ctx, sumiu.waId)
+    const r = responder({ waId: pronto.waId, cidadeId: 'sumiu-mt' }, 'tenis', ctx, pronto.waId)
     expect(r.contato?.cidadeId).toBeNull()
   })
 })
 
-describe('SAIR', () => {
-  it('apaga o contato em qualquer etapa', () => {
+describe('SAIR e mensagens estranhas', () => {
+  it('SAIR apaga o contato em qualquer etapa', () => {
     expect(responder(pronto, 'SAIR', ctx, pronto.waId).contato).toBeNull()
-    expect(responder(novo, 'parar', ctx, novo.waId).contato).toBeNull()
-    expect(responder(null, 'sair', ctx, novo.waId).contato).toBeNull()
+    expect(responder(null, 'parar', ctx, novo.waId).contato).toBeNull()
   })
-})
 
-describe('mensagem estranha', () => {
-  it('mensagem vazia (foto, áudio) explica que é por texto', () => {
-    const r = responder(pronto, '', ctx, pronto.waId)
-    expect(r.contato).toEqual(pronto)
-    expect(texto(r)).toContain('por texto')
+  it('foto ou áudio (texto vazio) pede texto', () => {
+    expect(texto(responder(pronto, '', ctx, pronto.waId))).toContain('por texto')
   })
 
   it('texto enorme é cortado antes de buscar', () => {
-    const r = responder(pronto, 'a'.repeat(5000), ctx, pronto.waId)
-    expect(texto(r).length).toBeLessThan(1000)
+    expect(texto(responder(pronto, 'a'.repeat(5000), ctx, pronto.waId)).length).toBeLessThan(1000)
   })
 })

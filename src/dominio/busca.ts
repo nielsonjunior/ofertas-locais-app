@@ -1,8 +1,5 @@
-import type { OfertaNaVitrine } from './tipos.js'
-import { lerQuantidade, precoPorUnidade } from './unidade.js'
-
 /**
- * A busca roda sobre as ofertas válidas de uma cidade — centenas, não milhões —
+ * A busca roda sobre os produtos de uma cidade — centenas, não milhões —
  * então cabe em memória, sem motor de busca. Todas as palavras precisam
  * aparecer; acento, maiúscula e plural simples não atrapalham.
  */
@@ -19,8 +16,8 @@ export function normalizar(texto: string): string {
 
 /**
  * A mesma raiz para singular e plural, aplicada dos dois lados: limão e
- * limões → limao; tomate e tomates → tomat; pão e pães → pao. Não é
- * gramática, é só o bastante para casar.
+ * limões → limao; tênis e camisetas perdem o "s". Não é gramática, é só o
+ * bastante para casar.
  */
 function raiz(palavra: string): string {
   if (/^\d+$/.test(palavra) || palavra.length <= 3) return palavra
@@ -37,31 +34,25 @@ function palavras(texto: string, tirarVazias = false): string[] {
   return normalizar(texto).split(' ').filter((p) => p && !(tirarVazias && VAZIAS.has(p))).map(raiz)
 }
 
-function casa(oferta: OfertaNaVitrine, termos: string[]): boolean {
-  const texto = palavras(`${oferta.produto} ${oferta.marca} ${oferta.quantidade}`)
+function casaTodos(texto: string[], termos: string[]): boolean {
   return termos.every((termo) => texto.some((p) => p === termo || (termo.length >= 3 && p.startsWith(termo))))
 }
 
-function porUnidade(o: OfertaNaVitrine) {
-  return precoPorUnidade(o.preco, lerQuantidade(o.quantidade))
+interface Buscavel {
+  titulo: string
+  descricao: string
+  lojaNome: string
 }
 
-/**
- * Se todas as ofertas achadas têm preço por kg (ou todas por L, ou todas por
- * unidade), devolve essa unidade; senão null. Só assim "mais barato" é verdade.
- */
-export function comparacao(ofertas: OfertaNaVitrine[]): 'kg' | 'L' | 'un' | null {
-  const unidades = new Set(ofertas.map((o) => porUnidade(o)?.por ?? null))
-  const [unica] = [...unidades]
-  return unidades.size === 1 && unica ? unica : null
-}
-
-/** As ofertas que casam, mais barata primeiro: por kg/L quando dá para comparar, senão pelo preço. */
-export function buscar(ofertas: OfertaNaVitrine[], consulta: string): OfertaNaVitrine[] {
+/** Os que casam: primeiro os que casam só pelo título; depois pela descrição e pela loja. A ordem de chegada se mantém. */
+export function buscar<T extends Buscavel>(produtos: T[], consulta: string): T[] {
   const termos = palavras(consulta, true)
   if (termos.length === 0) return []
-  const achadas = ofertas.filter((o) => casa(o, termos))
-  const porKg = comparacao(achadas) !== null
-  const valor = (o: OfertaNaVitrine) => (porKg ? porUnidade(o)!.centavos : o.preco)
-  return achadas.sort((a, b) => valor(a) - valor(b) || a.preco - b.preco)
+  const peloTitulo: T[] = []
+  const peloResto: T[] = []
+  for (const p of produtos) {
+    if (casaTodos(palavras(p.titulo), termos)) peloTitulo.push(p)
+    else if (casaTodos(palavras(`${p.titulo} ${p.descricao} ${p.lojaNome}`), termos)) peloResto.push(p)
+  }
+  return [...peloTitulo, ...peloResto]
 }

@@ -3,12 +3,11 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { banco } from './_banco.js'
 import type { Sql } from './_banco.js'
 import { ErroDoCliente, lerBytes, parametro, responderErro, responderJson } from './_http.js'
-import { cidades, ofertasValidas, panfletosValidos } from './_vitrine.js'
+import { cidades, feedDaCidade } from './_vitrine.js'
 import { assinaturaValida, enviarTexto, mensagensRecebidas } from './_whatsapp.js'
 import type { Recebida } from './_whatsapp.js'
 import { responder } from '../src/dominio/conversa.js'
 import type { Contato, Contexto } from '../src/dominio/conversa.js'
-import { hojeEmCuiaba } from '../src/dominio/validade.js'
 
 /**
  * O webhook do WhatsApp Business Cloud API.
@@ -34,14 +33,11 @@ async function atender(sql: Sql, msg: Recebida, siteUrl: string): Promise<void> 
   const [linha] = await sql`select wa_id, cidade_id from contatos where wa_id = ${msg.de}`
   const contato: Contato | null = linha ? { waId: String(linha.wa_id), cidadeId: linha.cidade_id ? String(linha.cidade_id) : null } : null
 
-  const hoje = hojeEmCuiaba()
   const todas = await cidades(sql)
   const cidadeId = contato?.cidadeId && todas.some((c) => c.id === contato.cidadeId) ? contato.cidadeId : null
-  const [panfletos, ofertas] = cidadeId
-    ? await Promise.all([panfletosValidos(sql, cidadeId, hoje), ofertasValidas(sql, cidadeId, hoje)])
-    : [[], []]
+  const produtos = cidadeId ? await feedDaCidade(sql, cidadeId) : []
 
-  const ctx: Contexto = { cidades: todas, panfletos, ofertas, siteUrl }
+  const ctx: Contexto = { cidades: todas, produtos, siteUrl }
   const resultado = responder(contato, msg.texto, ctx, msg.de)
 
   // Só guardamos o número de quem escolheu a cidade; o resto não precisa ficar (LGPD).

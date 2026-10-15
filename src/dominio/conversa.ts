@@ -1,7 +1,6 @@
 import { buscar, normalizar } from './busca.js'
 import { emReais } from './dinheiro.js'
-import type { Cidade, OfertaNaVitrine } from './tipos.js'
-import { lerQuantidade, precoPorUnidade } from './unidade.js'
+import type { Cidade, ProdutoNaVitrine } from './tipos.js'
 
 /**
  * A conversa do WhatsApp, inteira, sem rede nem banco: recebe quem escreveu e
@@ -16,18 +15,10 @@ export interface Contato {
   cidadeId: string | null
 }
 
-export interface PanfletoNaConversa {
-  id: string
-  mercadoNome: string
-  validoAte: string
-}
-
 export interface Contexto {
   cidades: Cidade[]
-  /** Panfletos valendo hoje na cidade do contato (vazio se ele não tem cidade). */
-  panfletos: PanfletoNaConversa[]
-  /** Ofertas valendo hoje na cidade do contato. */
-  ofertas: OfertaNaVitrine[]
+  /** Produtos no ar na cidade do contato, na ordem do feed (vazio se ele não tem cidade). */
+  produtos: ProdutoNaVitrine[]
   siteUrl: string
 }
 
@@ -42,23 +33,23 @@ const MAXIMO_DA_BUSCA = 60
 
 const SAIR = new Set(['sair', 'parar', 'cancelar', 'descadastrar'])
 const SAUDACAO = new Set(['oi', 'ola', 'oie', 'menu', 'ajuda', 'inicio', 'bom dia', 'boa tarde', 'boa noite', 'opa', 'eai', 'e ai'])
-const PANFLETOS = new Set(['panfleto', 'panfletos', 'encarte', 'encartes', 'ofertas', 'oferta'])
 const CIDADE = new Set(['cidade', 'trocar cidade', 'mudar cidade'])
 
 function listaDeCidades(cidades: Cidade[]): string {
   const linhas = cidades.map((c, i) => `${i + 1}. ${c.nome} - ${c.uf}`)
-  return `Oi! Aqui você vê as ofertas dos panfletos dos mercados da sua cidade.\n\nEm qual cidade você está? Responda com o número:\n\n${linhas.join('\n')}`
+  return `Oi! Aqui você vê o que as lojas da sua cidade estão vendendo.\n\nEm qual cidade você está? Responda com o número:\n\n${linhas.join('\n')}`
 }
 
-function menu(cidade: Cidade): string {
+function menu(cidade: Cidade, siteUrl: string): string {
   return [
-    `Você está vendo as ofertas de *${cidade.nome}*.`,
+    `Você está vendo as lojas de *${cidade.nome}*.`,
     '',
-    'Mande o nome de um produto (ex.: *arroz*, *picanha*) e eu mostro onde está mais barato.',
+    'Mande o que você procura (ex.: *tênis*, *bolo*, *ração*) e eu mostro quem tem.',
     '',
-    '*PANFLETOS* — os panfletos valendo hoje',
+    `Ou veja tudo no feed: ${siteUrl}/c/${encodeURIComponent(cidade.id)}`,
+    '',
     '*CIDADE* — trocar de cidade',
-    '*SAIR* — parar de receber e apagar seu número'
+    '*SAIR* — parar e apagar seu número'
   ].join('\n')
 }
 
@@ -67,40 +58,18 @@ function acharCidade(texto: string, cidades: Cidade[]): Cidade | undefined {
   return cidades.find((c) => normalizar(c.nome) === texto)
 }
 
-function diaMes(data: string): string {
-  return `${data.slice(8, 10)}/${data.slice(5, 7)}`
-}
-
-function linkDoPanfleto(ctx: Contexto, id: string): string {
-  return `${ctx.siteUrl}/panfleto/${encodeURIComponent(id)}`
-}
-
-function panfletos(ctx: Contexto, cidade: Cidade): string {
-  if (ctx.panfletos.length === 0) {
-    return `Ainda não há panfleto valendo em ${cidade.nome}. Volte daqui a pouco!`
-  }
-  const linhas = ctx.panfletos.map(
-    (p) => `*${p.mercadoNome}* (até ${diaMes(p.validoAte)})\n${linkDoPanfleto(ctx, p.id)}`
-  )
-  return `Panfletos valendo em ${cidade.nome}:\n\n${linhas.join('\n\n')}`
-}
-
-function linhaDaOferta(o: OfertaNaVitrine): string {
-  const nome = [o.produto, o.marca, o.quantidade].filter(Boolean).join(' ')
-  const porUnidade = precoPorUnidade(o.preco, lerQuantidade(o.quantidade))
-  const extra = porUnidade ? ` (${emReais(porUnidade.centavos)}/${porUnidade.por})` : ''
-  const condicao = o.condicao ? `\n   ${o.condicao}` : ''
-  return `• ${nome} — *${emReais(o.preco)}*${extra}\n   ${o.mercadoNome}${condicao}`
+function linhaDoProduto(p: ProdutoNaVitrine, siteUrl: string): string {
+  return `• *${p.titulo}* — ${emReais(p.preco)}\n   ${p.lojaNome}\n   ${siteUrl}/p/${encodeURIComponent(p.id)}`
 }
 
 function resultadoDaBusca(ctx: Contexto, cidade: Cidade, consulta: string): string {
-  const achadas = buscar(ctx.ofertas, consulta)
-  if (achadas.length === 0) {
-    return `Não achei "${consulta}" nos panfletos de ${cidade.nome} desta semana. Tente outro nome, ou mande *PANFLETOS*.`
+  const achados = buscar(ctx.produtos, consulta)
+  if (achados.length === 0) {
+    return `Não achei "${consulta}" nas lojas de ${cidade.nome} agora. Tente outro nome, ou veja o feed: ${ctx.siteUrl}/c/${encodeURIComponent(cidade.id)}`
   }
   const link = `${ctx.siteUrl}/busca?cidade=${encodeURIComponent(cidade.id)}&q=${encodeURIComponent(consulta)}`
-  const mais = achadas.length > MAXIMO_NA_RESPOSTA ? `\n\nVer as ${achadas.length}: ${link}` : `\n\n${link}`
-  return `${achadas.slice(0, MAXIMO_NA_RESPOSTA).map(linhaDaOferta).join('\n\n')}${mais}`
+  const fim = achados.length > MAXIMO_NA_RESPOSTA ? `Ver os ${achados.length}: ${link}` : link
+  return `${achados.slice(0, MAXIMO_NA_RESPOSTA).map((p) => linhaDoProduto(p, ctx.siteUrl)).join('\n\n')}\n\n${fim}`
 }
 
 export function responder(contato: Contato | null, mensagem: string, ctx: Contexto, waId: string): Resultado {
@@ -113,7 +82,7 @@ export function responder(contato: Contato | null, mensagem: string, ctx: Contex
   }
 
   if (!texto && contato?.cidadeId) {
-    return { contato: atual, respostas: ['Por enquanto eu só entendo mensagem por texto. Mande o nome de um produto, ou *PANFLETOS*.'] }
+    return { contato: atual, respostas: ['Por enquanto eu só entendo mensagem por texto. Mande o que você procura.'] }
   }
 
   const cidade = ctx.cidades.find((c) => c.id === atual.cidadeId)
@@ -121,22 +90,18 @@ export function responder(contato: Contato | null, mensagem: string, ctx: Contex
   if (!cidade || CIDADE.has(texto)) {
     const escolhida = cidade ? undefined : acharCidade(texto, ctx.cidades)
     if (escolhida) {
-      const novo = { waId: atual.waId, cidadeId: escolhida.id }
-      return { contato: novo, respostas: [`Pronto! ${menu(escolhida)}`] }
+      return { contato: { waId: atual.waId, cidadeId: escolhida.id }, respostas: [`Pronto! ${menu(escolhida, ctx.siteUrl)}`] }
     }
     return { contato: { waId: atual.waId, cidadeId: null }, respostas: [listaDeCidades(ctx.cidades)] }
   }
 
-  if (SAUDACAO.has(texto)) return { contato: atual, respostas: [menu(cidade)] }
-  if (PANFLETOS.has(texto)) return { contato: atual, respostas: [panfletos(ctx, cidade)] }
+  if (SAUDACAO.has(texto)) return { contato: atual, respostas: [menu(cidade, ctx.siteUrl)] }
 
-  // "comper", "ofertas do atacadão", "panfleto da comper"
-  const nomeDoMercado = texto.replace(/^(ofertas?|panfletos?|encartes?)( d[oa]s?)? /, '')
-  const doMercado = ctx.panfletos.find((p) => normalizar(p.mercadoNome) === nomeDoMercado)
-  if (doMercado) {
+  const loja = ctx.produtos.find((p) => normalizar(p.lojaNome) === texto)
+  if (loja) {
     return {
       contato: atual,
-      respostas: [`Panfleto do *${doMercado.mercadoNome}* (até ${diaMes(doMercado.validoAte)}):\n${linkDoPanfleto(ctx, doMercado.id)}`]
+      respostas: [`Vitrine da *${loja.lojaNome}*:\n${ctx.siteUrl}/loja/${encodeURIComponent(loja.lojaId)}`]
     }
   }
 

@@ -1,4 +1,4 @@
-import type { TipoDaPagina } from './_ia.js'
+export type TipoDaPagina = 'image/jpeg' | 'image/png' | 'image/webp' | 'application/pdf'
 
 /**
  * O tipo do arquivo pelos primeiros bytes, e não pelo que o navegador diz.

@@ -4,27 +4,15 @@ import { conexaoLocal, URL_DE_TESTE } from '../servidor/pgLocal'
 import { chamar } from './apoio/http'
 
 /**
- * O caminho inteiro contra um Postgres de verdade: a equipe entra, cadastra o
- * mercado, envia a página, confere, publica; o site mostra; o WhatsApp
- * responde. A IA, o armazém de arquivos e o envio do WhatsApp são de mentira.
+ * O caminho inteiro contra um Postgres de verdade: o lojista se cadastra,
+ * posta, o administrador aprova, o feed mostra, o consumidor chama no
+ * WhatsApp e denuncia. O armazém de fotos e o envio do WhatsApp são de mentira.
  *
  * Roda com DATABASE_URL_TESTE (ver CLAUDE.md); sem ela, é pulado.
  */
 
-const arquivos = new Map<string, Buffer>()
 vi.mock('@vercel/blob', () => ({
-  put: vi.fn(async (caminho: string, bytes: Buffer) => { arquivos.set(caminho, bytes); return { pathname: caminho } }),
-  get: vi.fn(async (caminho: string) => {
-    const bytes = arquivos.get(caminho)
-    return bytes ? { statusCode: 200, stream: (async function* () { yield bytes })() } : null
-  }),
-  del: vi.fn(async () => {})
-}))
-
-const leituraDaIa = vi.fn()
-vi.mock('../api/_ia', async (original) => ({
-  ...(await original<typeof import('../api/_ia')>()),
-  lerPagina: (...args: unknown[]) => leituraDaIa(...args)
+  put: vi.fn(async (caminho: string) => ({ url: `https://abc123.public.blob.vercel-storage.com/${caminho}` }))
 }))
 
 const enviadas: { para: string; texto: string }[] = []
@@ -36,262 +24,221 @@ vi.mock('../api/_whatsapp', async (original) => ({
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(64)])
 const SEGREDO = 'segredo-do-app'
 const MARCA = { 'X-Requested-With': 'ofertas' }
+let ip = 0
 
 describe.skipIf(!URL_DE_TESTE)('de ponta a ponta', () => {
   const banco = URL_DE_TESTE ? conexaoLocal(URL_DE_TESTE) : null
-  let equipe: typeof import('../api/equipe').default
+  let conta: typeof import('../api/conta').default
+  let loja: typeof import('../api/loja').default
+  let admin: typeof import('../api/admin').default
   let publico: typeof import('../api/publico').default
-  let arquivo: typeof import('../api/arquivo').default
   let whatsapp: typeof import('../api/whatsapp').default
-  let cookie = ''
+  const cookies: Record<string, string> = {}
 
   beforeAll(async () => {
     await banco!.limpar()
     const { usarConexao } = await import('../api/_banco')
     usarConexao(banco!.sql)
     const { embaralhar } = await import('../api/_senha')
-    process.env.EQUIPE_INICIAL = `ana:${await embaralhar('senha-boa-123')}`
+    process.env.ADMIN_INICIAL = `chefe:${await embaralhar('senha-do-chefe-1')}`
     process.env.WHATSAPP_SEGREDO_APP = SEGREDO
-    process.env.WHATSAPP_VERIFICACAO = 'frase-da-meta'
     process.env.SITE_URL = 'https://ofertas.exemplo'
-    equipe = (await import('../api/equipe')).default
+    conta = (await import('../api/conta')).default
+    loja = (await import('../api/loja')).default
+    admin = (await import('../api/admin')).default
     publico = (await import('../api/publico')).default
-    arquivo = (await import('../api/arquivo')).default
     whatsapp = (await import('../api/whatsapp')).default
   })
 
   afterAll(async () => { await banco?.fechar() })
   beforeEach(() => { enviadas.length = 0 })
 
-  function comoEquipe(metodo: string, url: string, corpo?: unknown) {
-    return chamar(equipe, metodo, url, { corpo, cabecalhos: { cookie, ...MARCA } })
+  /** Cada pedido de um endereço diferente, para o freio por endereço não atrapalhar o teste. */
+  function pedir(endereco: Parameters<typeof chamar>[0], metodo: string, url: string, quem?: string, corpo?: unknown, extra: Record<string, string> = {}) {
+    return chamar(endereco, metodo, url, {
+      corpo,
+      cabecalhos: { ...MARCA, 'x-forwarded-for': `10.9.${Math.floor(++ip / 250)}.${ip % 250}`, ...(quem ? { cookie: cookies[quem]! } : {}), ...extra }
+    })
   }
 
-  describe('login', () => {
-    it('sem sessão, nada da equipe abre', async () => {
-      expect((await chamar(equipe, 'GET', '/api/equipe?acao=panfletos')).status).toBe(401)
+  function guardarCookie(quem: string, r: Awaited<ReturnType<typeof chamar>>) {
+    cookies[quem] = r.cabecalhos['set-cookie']!.split(';')[0]!
+  }
+
+  const novaLoja = (usuario: string, nome: string, whatsappDaLoja = '(65) 99999-0000') => ({
+    usuario, senha: 'senha-forte-123', cidadeId: 'caceres-mt', nome, categoria: 'roupas',
+    whatsapp: whatsappDaLoja, endereco: 'Rua 1', descricao: '', aceite: true
+  })
+
+  async function postar(quem: string, titulo: string, preco = '99,90') {
+    const foto = await pedir(loja, 'POST', '/api/loja?acao=foto', quem, JPEG)
+    const r = await pedir(loja, 'POST', '/api/loja?acao=produto', quem, {
+      titulo, descricao: '', categoria: 'roupas', preco, precoDe: '', fotos: [foto.json().url]
+    })
+    expect(r.status).toBe(201)
+    return r.json().id as string
+  }
+
+  async function feed(categoria = '') {
+    const r = await pedir(publico, 'GET', `/api/publico?acao=feed&cidade=caceres-mt${categoria ? `&categoria=${categoria}` : ''}`)
+    return r.json().produtos as { id: string; titulo: string; lojaNome: string }[]
+  }
+
+  let tenisId = ''
+
+  describe('cadastro do lojista', () => {
+    it('cria a conta e a loja, já logado, com a loja pendente', async () => {
+      const r = await pedir(conta, 'POST', '/api/conta?acao=cadastrar', undefined, novaLoja('casa.tenis', 'Casa do Tênis'))
+      expect(r.status).toBe(201)
+      expect(r.json().sessao).toMatchObject({ usuario: 'casa.tenis', papel: 'lojista' })
+      guardarCookie('A', r)
+      const minha = (await pedir(loja, 'GET', '/api/loja?acao=minha', 'A')).json()
+      expect(minha.loja).toMatchObject({ nome: 'Casa do Tênis', whatsapp: '65999990000', estado: 'pendente' })
     })
 
-    it('senha errada não entra', async () => {
-      const r = await chamar(equipe, 'POST', '/api/equipe?acao=entrar', { corpo: { usuario: 'ana', senha: 'errada' } })
-      expect(r.status).toBe(401)
+    it('recusa usuário repetido, WhatsApp inválido, sem aceite e sem a marca do site', async () => {
+      expect((await pedir(conta, 'POST', '/api/conta?acao=cadastrar', undefined, novaLoja('casa.tenis', 'Outra'))).json().erro).toContain('já existe')
+      expect((await pedir(conta, 'POST', '/api/conta?acao=cadastrar', undefined, novaLoja('outra', 'Outra', '123'))).status).toBe(400)
+      expect((await pedir(conta, 'POST', '/api/conta?acao=cadastrar', undefined, { ...novaLoja('outra', 'Outra'), aceite: false })).status).toBe(400)
+      const semMarca = await chamar(conta, 'POST', '/api/conta?acao=cadastrar', { corpo: novaLoja('outra', 'Outra') })
+      expect(semMarca.status).toBe(403)
     })
 
-    it('a primeira pessoa entra com EQUIPE_INICIAL', async () => {
-      const r = await chamar(equipe, 'POST', '/api/equipe?acao=entrar', { corpo: { usuario: 'Ana', senha: 'senha-boa-123' } })
-      expect(r.status).toBe(200)
-      expect(r.cabecalhos['set-cookie']).toContain('HttpOnly')
-      cookie = r.cabecalhos['set-cookie']!.split(';')[0]!
-      expect((await comoEquipe('GET', '/api/equipe?acao=eu')).json()).toEqual({ usuario: 'ana' })
+    it('posta com a loja pendente, mas nada aparece no feed', async () => {
+      tenisId = await postar('A', 'Tênis Nike Revolution', '349,90')
+      expect(await feed()).toEqual([])
+      expect((await pedir(publico, 'GET', `/api/publico?acao=produto&id=${tenisId}`)).status).toBe(404)
     })
 
-    it('pedido que muda algo sem a marca do site é recusado (CSRF)', async () => {
-      const r = await chamar(equipe, 'POST', '/api/equipe?acao=cidade', { corpo: { nome: 'X', uf: 'MT' }, cabecalhos: { cookie } })
-      expect(r.status).toBe(403)
+    it('foto que não é imagem e foto de fora não entram', async () => {
+      expect((await pedir(loja, 'POST', '/api/loja?acao=foto', 'A', Buffer.from('<html><script>x</script></html>'))).status).toBe(400)
+      const r = await pedir(loja, 'POST', '/api/loja?acao=produto', 'A', {
+        titulo: 'X', categoria: 'roupas', preco: '1,00', fotos: ['https://golpe.exemplo/x.jpg']
+      })
+      expect(r.status).toBe(400)
     })
   })
 
-  describe('do panfleto ao ar', () => {
-    let mercadoId = ''
-    let panfletoId = ''
-
-    it('cadastra o mercado em Cáceres', async () => {
-      const r = await comoEquipe('POST', '/api/equipe?acao=mercado', { cidadeId: 'caceres-mt', nome: 'Atacadão', endereco: 'Av. São Luiz' })
-      expect(r.status).toBe(201)
-      mercadoId = r.json().id
+  describe('administrador', () => {
+    it('entra com ADMIN_INICIAL; lojista não entra no admin', async () => {
+      const r = await pedir(conta, 'POST', '/api/conta?acao=entrar', undefined, { usuario: 'chefe', senha: 'senha-do-chefe-1' })
+      expect(r.status).toBe(200)
+      guardarCookie('chefe', r)
+      expect((await pedir(admin, 'GET', '/api/admin?acao=lojas', 'A')).status).toBe(403)
+      expect((await pedir(admin, 'GET', '/api/admin?acao=lojas')).status).toBe(401)
     })
 
-    it('cria o panfleto e envia a página; a IA lê', async () => {
-      panfletoId = (await comoEquipe('POST', '/api/equipe?acao=panfleto', { mercadoId })).json().id
-      leituraDaIa.mockResolvedValueOnce({
-        validoDe: '2026-01-01', validoAte: '2099-12-31',
-        ofertas: [
-          { produto: 'Arroz Tipo 1', marca: 'Tio João', quantidade: '5 kg', preco: '27,99', precoDe: '32,90', condicao: null, certeza: 'alta' },
-          { produto: 'Feijão Carioca', marca: null, quantidade: '1 kg', preco: '7,99', precoDe: null, condicao: null, certeza: 'baixa' },
-          { produto: 'Item sem preço', marca: null, quantidade: null, preco: 'consulte', precoDe: null, condicao: null, certeza: 'alta' }
-        ]
-      })
-      const r = await chamar(equipe, 'POST', `/api/equipe?acao=pagina&panfleto=${panfletoId}`, {
-        corpo: JPEG, cabecalhos: { cookie, ...MARCA, 'content-type': 'image/jpeg' }
-      })
-      expect(r.status).toBe(201)
-      expect(r.json()).toMatchObject({ pagina: 1, lidas: 2, descartadas: 1 })
+    it('vê a loja pendente e aprova; o produto entra no feed', async () => {
+      const lojas = (await pedir(admin, 'GET', '/api/admin?acao=lojas&estado=pendente', 'chefe')).json()
+      expect(lojas).toHaveLength(1)
+      expect(lojas[0]).toMatchObject({ nome: 'Casa do Tênis', usuario: 'casa.tenis', produtos: 1, cidade: 'Cáceres - MT' })
+      expect((await pedir(admin, 'POST', '/api/admin?acao=estado-da-loja', 'chefe', { id: lojas[0].id, estado: 'aprovada' })).status).toBe(204)
+      expect((await feed()).map((p) => p.titulo)).toEqual(['Tênis Nike Revolution'])
+      const produto = (await pedir(publico, 'GET', `/api/publico?acao=produto&id=${tenisId}`)).json()
+      expect(produto).toMatchObject({ titulo: 'Tênis Nike Revolution', preco: 34990, lojaWhatsapp: '65999990000', cidadeId: 'caceres-mt' })
+    })
+  })
+
+  describe('feed e lojas', () => {
+    it('intercala as lojas e filtra por categoria', async () => {
+      const r = await pedir(conta, 'POST', '/api/conta?acao=cadastrar', undefined, novaLoja('moda.center', 'Moda Center', '65988887777'))
+      guardarCookie('B', r)
+      const lojaB = (await pedir(loja, 'GET', '/api/loja?acao=minha', 'B')).json().loja.id
+      await pedir(admin, 'POST', '/api/admin?acao=estado-da-loja', 'chefe', { id: lojaB, estado: 'aprovada' })
+      await postar('B', 'Camiseta Polo')
+      await postar('B', 'Bermuda Jeans')
+      await postar('A', 'Chinelo Havaianas')
+
+      const lojas = (await feed()).map((p) => p.lojaNome)
+      for (let i = 1; i < lojas.length; i++) {
+        if (lojas[i] === lojas[i - 1]) expect(new Set(lojas.slice(i)).size).toBe(1)
+      }
+      expect(await feed('pet')).toEqual([])
+      expect((await pedir(publico, 'GET', '/api/publico?acao=feed&cidade=caceres-mt&categoria=armas')).status).toBe(400)
     })
 
-    it('arquivo que não é imagem nem PDF é recusado', async () => {
-      const r = await chamar(equipe, 'POST', `/api/equipe?acao=pagina&panfleto=${panfletoId}`, {
-        corpo: Buffer.from('<html><script>alert(1)</script></html>'), cabecalhos: { cookie, ...MARCA }
-      })
-      expect(r.status).toBe(400)
+    it('a página da loja mostra os produtos dela', async () => {
+      const lojaA = (await pedir(loja, 'GET', '/api/loja?acao=minha', 'A')).json().loja.id
+      const r = (await pedir(publico, 'GET', `/api/publico?acao=loja&id=${lojaA}`)).json()
+      expect(r.nome).toBe('Casa do Tênis')
+      expect(r.produtos.map((p: { titulo: string }) => p.titulo).sort()).toEqual(['Chinelo Havaianas', 'Tênis Nike Revolution'])
     })
 
-    it('a conferência mostra a validade lida e as ofertas em dúvida primeiro', async () => {
-      const p = (await comoEquipe('GET', `/api/equipe?acao=panfleto&id=${panfletoId}`)).json()
-      expect(p.estado).toBe('conferir')
-      expect(p.validoAte).toBe('2099-12-31')
-      expect(p.ofertas.map((o: any) => [o.produto, o.preco, o.confianca])).toEqual([
-        ['Feijão Carioca', 799, 'baixa'],
-        ['Arroz Tipo 1', 2799, 'alta']
-      ])
+    it('uma loja não mexe no produto da outra', async () => {
+      expect((await pedir(loja, 'DELETE', `/api/loja?acao=produto&id=${tenisId}`, 'B')).status).toBe(404)
+      expect((await pedir(loja, 'POST', '/api/loja?acao=ativo', 'B', { id: tenisId, ativo: false })).status).toBe(404)
+      expect((await pedir(publico, 'GET', `/api/publico?acao=produto&id=${tenisId}`)).status).toBe(200)
     })
 
-    it('ainda não publicado, o público não vê nem a página', async () => {
-      expect((await chamar(publico, 'GET', `/api/publico?acao=panfleto&id=${panfletoId}`)).status).toBe(404)
-      expect((await chamar(arquivo, 'GET', `/api/arquivo?panfleto=${panfletoId}&pagina=1`)).status).toBe(404)
+    it('pausar tira do feed; reativar volta', async () => {
+      await pedir(loja, 'POST', '/api/loja?acao=ativo', 'A', { id: tenisId, ativo: false })
+      expect((await feed()).some((p) => p.id === tenisId)).toBe(false)
+      await pedir(loja, 'POST', '/api/loja?acao=ativo', 'A', { id: tenisId, ativo: true })
+      expect((await feed()).some((p) => p.id === tenisId)).toBe(true)
     })
 
-    it('não publica com oferta em dúvida', async () => {
-      const r = await comoEquipe('POST', '/api/equipe?acao=publicar', { id: panfletoId })
-      expect(r.status).toBe(400)
-      expect(r.json().erro).toContain('amarelo')
+    it('vistas e cliques chegam ao painel do lojista', async () => {
+      await pedir(publico, 'POST', '/api/publico?acao=vistas', undefined, { ids: [tenisId, tenisId] })
+      await pedir(publico, 'POST', '/api/publico?acao=clique', undefined, { id: tenisId })
+      const p = (await pedir(loja, 'GET', '/api/loja?acao=minha', 'A')).json().produtos.find((x: { id: string }) => x.id === tenisId)
+      expect(p).toMatchObject({ vistas: 1, cliques: 1 })
     })
 
-    it('conferir a oferta tira a dúvida, e aí publica', async () => {
-      const p = (await comoEquipe('GET', `/api/equipe?acao=panfleto&id=${panfletoId}`)).json()
-      const feijao = p.ofertas.find((o: any) => o.produto === 'Feijão Carioca')
-      expect((await comoEquipe('PUT', '/api/equipe?acao=oferta', { ...feijao, preco: '7,49', precoDe: '' })).status).toBe(204)
-      expect((await comoEquipe('POST', '/api/equipe?acao=publicar', { id: panfletoId })).status).toBe(204)
+    it('trocar o WhatsApp de loja aprovada volta para análise e sai do feed', async () => {
+      const minha = (await pedir(loja, 'GET', '/api/loja?acao=minha', 'A')).json().loja
+      await pedir(loja, 'PUT', '/api/loja?acao=loja', 'A', { ...minha, whatsapp: '65911112222' })
+      expect((await pedir(loja, 'GET', '/api/loja?acao=minha', 'A')).json().loja.estado).toBe('pendente')
+      expect((await feed()).some((p) => p.lojaNome === 'Casa do Tênis')).toBe(false)
+      await pedir(admin, 'POST', '/api/admin?acao=estado-da-loja', 'chefe', { id: minha.id, estado: 'aprovada' })
+      // Mudar só o endereço não tira do ar.
+      await pedir(loja, 'PUT', '/api/loja?acao=loja', 'A', { ...minha, whatsapp: '65911112222', endereco: 'Rua 2' })
+      expect((await pedir(loja, 'GET', '/api/loja?acao=minha', 'A')).json().loja.estado).toBe('aprovada')
     })
+  })
 
-    it('o site mostra a vitrine de Cáceres e o panfleto', async () => {
-      const v = (await chamar(publico, 'GET', '/api/publico?acao=vitrine&cidade=caceres-mt')).json()
-      expect(v.panfletos).toHaveLength(1)
-      expect(v.panfletos[0]).toMatchObject({ mercadoNome: 'Atacadão', ofertas: 2, paginas: 1 })
-      expect(v.ofertas.map((o: any) => [o.produto, o.preco])).toEqual([['Feijão Carioca', 749], ['Arroz Tipo 1', 2799]])
-
-      const p = (await chamar(publico, 'GET', `/api/publico?acao=panfleto&id=${panfletoId}`)).json()
-      expect(p).toMatchObject({ mercadoNome: 'Atacadão', vencido: false, paginas: ['image/jpeg'] })
-
-      const img = await chamar(arquivo, 'GET', `/api/arquivo?panfleto=${panfletoId}&pagina=1`)
-      expect(img.status).toBe(200)
-      expect(img.cabecalhos['content-type']).toBe('image/jpeg')
-      expect(img.corpo.equals(JPEG)).toBe(true)
-    })
-
-    it('com o panfleto no ar, não se mexe nas ofertas nem nas páginas', async () => {
-      const p = (await comoEquipe('GET', `/api/equipe?acao=panfleto&id=${panfletoId}`)).json()
-      const arroz = p.ofertas.find((o: any) => o.produto === 'Arroz Tipo 1')
-      expect((await comoEquipe('PUT', '/api/equipe?acao=oferta', { ...arroz, preco: '1,00', precoDe: '' })).status).toBe(404)
-      expect((await comoEquipe('DELETE', `/api/equipe?acao=oferta&id=${arroz.id}`)).status).toBe(404)
-      expect((await comoEquipe('POST', '/api/equipe?acao=oferta', { panfletoId, produto: 'Golpe', preco: '1,00' })).status).toBe(400)
-      const pagina = await chamar(equipe, 'POST', `/api/equipe?acao=pagina&panfleto=${panfletoId}`, {
-        corpo: JPEG, cabecalhos: { cookie, ...MARCA }
-      })
-      expect(pagina.status).toBe(400)
-    })
-
-    it('não publica enquanto a IA lê uma página', async () => {
-      const { id: outro } = (await comoEquipe('POST', '/api/equipe?acao=panfleto', { mercadoId, validoDe: '2026-01-01', validoAte: '2099-12-31' })).json()
-      await comoEquipe('POST', '/api/equipe?acao=oferta', { panfletoId: outro, produto: 'Sal', quantidade: '1 kg', preco: '2,99' })
-
-      let soltar: (v: unknown) => void = () => {}
-      leituraDaIa.mockReturnValueOnce(new Promise((r) => { soltar = r }))
-      const leitura = chamar(equipe, 'POST', `/api/equipe?acao=pagina&panfleto=${outro}`, {
-        corpo: JPEG, cabecalhos: { cookie, ...MARCA }
-      })
-      await new Promise((r) => setTimeout(r, 100))
-
-      const durante = await comoEquipe('POST', '/api/equipe?acao=publicar', { id: outro })
-      expect(durante.status).toBe(400)
-      expect(durante.json().erro).toContain('lendo')
-
-      soltar({ validoDe: null, validoAte: null, ofertas: [
-        { produto: 'Visite golpe.exemplo', marca: null, quantidade: null, preco: '1,00', precoDe: null, condicao: null, certeza: 'baixa' }
-      ] })
-      expect((await leitura).status).toBe(201)
-      // Depois de lida, a oferta em dúvida ainda trava a publicação.
-      expect((await comoEquipe('POST', '/api/equipe?acao=publicar', { id: outro })).status).toBe(400)
-      await comoEquipe('DELETE', `/api/equipe?acao=panfleto&id=${outro}`)
-    })
-
-    it('cidade que não existe dá 404', async () => {
-      expect((await chamar(publico, 'GET', '/api/publico?acao=vitrine&cidade=xx')).status).toBe(404)
+  describe('denúncia', () => {
+    it('chega ao admin, que tira o produto do ar', async () => {
+      expect((await pedir(publico, 'POST', '/api/publico?acao=denuncia', undefined, { produtoId: tenisId, motivo: 'qualquer' })).status).toBe(400)
+      expect((await pedir(publico, 'POST', '/api/publico?acao=denuncia', undefined, { produtoId: tenisId, motivo: 'golpe' })).status).toBe(201)
+      const denuncias = (await pedir(admin, 'GET', '/api/admin?acao=denuncias', 'chefe')).json()
+      expect(denuncias[0]).toMatchObject({ produtoId: tenisId, motivo: 'golpe', lojaNome: 'Casa do Tênis' })
+      await pedir(admin, 'POST', '/api/admin?acao=tirar-do-ar', 'chefe', { produtoId: tenisId })
+      expect((await feed()).some((p) => p.id === tenisId)).toBe(false)
+      expect((await pedir(admin, 'GET', '/api/admin?acao=denuncias', 'chefe')).json()).toEqual([])
     })
   })
 
   describe('WhatsApp', () => {
     let seq = 0
-    function aviso(de: string, texto: string, id = `wamid.${++seq}`) {
-      return Buffer.from(JSON.stringify({
-        object: 'whatsapp_business_account',
-        entry: [{ changes: [{ field: 'messages', value: { messages: [{ from: de, id, type: 'text', text: { body: texto } }] } }] }]
+    function mandar(de: string, texto: string) {
+      const corpo = Buffer.from(JSON.stringify({
+        entry: [{ changes: [{ value: { messages: [{ from: de, id: `wamid.${++seq}`, type: 'text', text: { body: texto } }] } }] }]
       }))
-    }
-    function mandar(corpo: Buffer, segredo = SEGREDO) {
-      const assinatura = 'sha256=' + createHmac('sha256', segredo).update(corpo).digest('hex')
+      const assinatura = 'sha256=' + createHmac('sha256', SEGREDO).update(corpo).digest('hex')
       return chamar(whatsapp, 'POST', '/api/whatsapp', { corpo, cabecalhos: { 'x-hub-signature-256': assinatura } })
     }
 
-    it('a Meta verifica o endereço com a frase combinada', async () => {
-      const ok = await chamar(whatsapp, 'GET', '/api/whatsapp?hub.mode=subscribe&hub.verify_token=frase-da-meta&hub.challenge=123')
-      expect(ok.status).toBe(200)
-      expect(ok.corpo.toString()).toBe('123')
-      const nao = await chamar(whatsapp, 'GET', '/api/whatsapp?hub.mode=subscribe&hub.verify_token=chute&hub.challenge=123')
-      expect(nao.status).toBe(403)
-    })
-
-    it('aviso sem assinatura certa é recusado e ninguém recebe nada', async () => {
-      expect((await mandar(aviso('5565999990000', 'oi'), 'outro')).status).toBe(401)
-      expect(enviadas).toEqual([])
-    })
-
-    it('oi → cidade → busca, com o mais barato primeiro', async () => {
-      await mandar(aviso('5565999990000', 'oi'))
+    it('oi → cidade → busca produto da cidade', async () => {
+      await mandar('5565900000001', 'oi')
       expect(enviadas.at(-1)?.texto).toContain('1. Cáceres - MT')
-
-      await mandar(aviso('5565999990000', '1'))
-      expect(enviadas.at(-1)?.texto).toContain('Cáceres')
-
-      await mandar(aviso('5565999990000', 'arroz'))
-      expect(enviadas.at(-1)?.texto).toContain('Arroz Tipo 1 Tio João 5 kg — *R$ 27,99*')
-      expect(enviadas.at(-1)?.texto).toContain('Atacadão')
-
-      await mandar(aviso('5565999990000', 'panfletos'))
-      expect(enviadas.at(-1)?.texto).toContain('https://ofertas.exemplo/panfleto/')
-    })
-
-    it('a mesma mensagem reenviada pela Meta é respondida uma vez só', async () => {
-      const corpo = aviso('5565999990000', 'feijao', 'wamid.repetida')
-      await mandar(corpo)
-      await mandar(corpo)
-      expect(enviadas).toHaveLength(1)
-    })
-
-    it('SAIR apaga o número do banco', async () => {
-      await mandar(aviso('5565999990000', 'sair'))
-      const linhas = await banco!.sql`select * from contatos where wa_id = '5565999990000'`
-      expect(linhas).toEqual([])
+      await mandar('5565900000001', '1')
+      await mandar('5565900000001', 'camiseta')
+      expect(enviadas.at(-1)?.texto).toContain('*Camiseta Polo* — R$ 99,90')
+      expect(enviadas.at(-1)?.texto).toContain('Moda Center')
     })
   })
 
-  // Por último: bloqueia a usuária.
-  describe('freio de senha', () => {
-    function tentar(senha: string, usuario = 'ana', endereco = '10.0.0.1') {
-      return chamar(equipe, 'POST', '/api/equipe?acao=entrar', {
-        corpo: { usuario, senha }, cabecalhos: { 'x-forwarded-for': endereco }
-      })
-    }
-
-    it('tentativas ao mesmo tempo não passam de cinco erros, e travado responde igual a inexistente', async () => {
-      // Cada uma de um endereço diferente, para medir só o freio do usuário.
-      await Promise.all(Array.from({ length: 12 }, (_, i) => tentar(`chute-${i}`, 'ana', `10.1.0.${i}`)))
-      const [{ erros } = { erros: 0 }] = await banco!.sql`select erros from equipe where usuario = 'ana'`
-      expect(erros).toBe(5)
-
-      const travada = await tentar('senha-boa-123', 'ana', '10.2.0.1')
-      const inexistente = await tentar('qualquer', 'ninguem', '10.2.0.2')
-      expect(travada.status).toBe(401)
-      expect(travada.json()).toEqual(inexistente.json())
-    })
-
-    it('um endereço só tem 20 tentativas na janela', async () => {
-      for (let i = 0; i < 20; i++) await tentar('x', `alguem-${i}`, '10.3.0.1')
-      expect((await tentar('x', 'outro', '10.3.0.1')).status).toBe(429)
+  describe('bloqueio', () => {
+    it('loja bloqueada sai do feed e o lojista perde a sessão', async () => {
+      const lojaB = (await pedir(loja, 'GET', '/api/loja?acao=minha', 'B')).json().loja.id
+      await pedir(admin, 'POST', '/api/admin?acao=estado-da-loja', 'chefe', { id: lojaB, estado: 'bloqueada' })
+      expect((await feed()).some((p) => p.lojaNome === 'Moda Center')).toBe(false)
+      expect((await pedir(loja, 'GET', '/api/loja?acao=minha', 'B')).status).toBe(401)
     })
 
     it('sair apaga a sessão', async () => {
-      expect((await comoEquipe('POST', '/api/equipe?acao=sair')).status).toBe(204)
-      expect((await comoEquipe('GET', '/api/equipe?acao=panfletos')).status).toBe(401)
+      expect((await pedir(conta, 'POST', '/api/conta?acao=sair', 'A')).status).toBe(204)
+      expect((await pedir(loja, 'GET', '/api/loja?acao=minha', 'A')).status).toBe(401)
     })
   })
 })

@@ -5,8 +5,7 @@ import type { NeonQueryFunction } from '@neondatabase/serverless'
  * Conexão com o Postgres (Neon) e as tabelas, criadas sozinhas na primeira
  * chamada de cada instância — não há SQL para rodar à mão.
  *
- * Dinheiro em centavos (integer). Datas de validade em texto AAAA-MM-DD,
- * comparadas com a data de Cuiabá (src/dominio/validade.ts).
+ * Dinheiro em centavos (integer).
  */
 
 export type Sql = NeonQueryFunction<false, false>
@@ -32,41 +31,63 @@ const TABELAS = [
     nome text not null,
     uf text not null
   )`,
-  `create table if not exists mercados (
+  // Loja só aparece no feed aprovada. Trocar nome ou WhatsApp volta para
+  // pendente: é assim que se barra golpe em conta tomada (ver api/loja.ts).
+  `create table if not exists lojas (
     id text primary key,
     cidade_id text not null references cidades(id),
     nome text not null,
+    categoria text not null,
+    whatsapp text not null,
     endereco text not null default '',
+    descricao text not null default '',
+    estado text not null default 'pendente',
+    criada_em timestamptz not null default now()
+  )`,
+  `create index if not exists lojas_da_cidade on lojas (cidade_id, estado)`,
+  `create table if not exists contas (
+    usuario text primary key,
+    senha text not null,
+    papel text not null check (papel in ('admin', 'lojista')),
+    loja_id text references lojas(id) on delete cascade,
     ativo boolean not null default true,
-    criado_em timestamptz not null default now()
+    erros integer not null default 0,
+    bloqueado_ate timestamptz
   )`,
-  `create table if not exists panfletos (
-    id text primary key,
-    mercado_id text not null references mercados(id),
-    valido_de text not null default '',
-    valido_ate text not null default '',
-    estado text not null default 'lendo',
-    paginas jsonb not null default '[]',
-    criado_por text not null,
-    criado_em timestamptz not null default now(),
-    publicado_em timestamptz,
-    -- Enquanto a IA lê uma página, não se publica (ver api/equipe.ts).
-    lendo_ate timestamptz
+  // O token da sessão fica só no cookie; aqui vai o hash dele.
+  `create table if not exists sessoes (
+    token_hash text primary key,
+    usuario text not null references contas(usuario) on delete cascade,
+    expira_em timestamptz not null
   )`,
-  `create index if not exists panfletos_vitrine on panfletos (estado, valido_ate)`,
-  `create table if not exists ofertas (
+  // Freio por endereço de internet (login, cadastro, denúncia), numa janela de 15 minutos.
+  `create table if not exists tentativas (
+    endereco text primary key,
+    janela timestamptz not null,
+    total integer not null
+  )`,
+  `create table if not exists produtos (
     id text primary key,
-    panfleto_id text not null references panfletos(id) on delete cascade,
-    produto text not null,
-    marca text not null default '',
-    quantidade text not null default '',
+    loja_id text not null references lojas(id) on delete cascade,
+    titulo text not null,
+    descricao text not null default '',
+    categoria text not null,
     preco integer not null check (preco > 0),
     preco_de integer,
-    condicao text not null default '',
-    pagina integer not null default 1,
-    confianca text not null default 'alta'
+    fotos jsonb not null default '[]',
+    ativo boolean not null default true,
+    criado_em timestamptz not null default now(),
+    vistas integer not null default 0,
+    cliques integer not null default 0
   )`,
-  `create index if not exists ofertas_do_panfleto on ofertas (panfleto_id)`,
+  `create index if not exists produtos_da_loja on produtos (loja_id, criado_em desc)`,
+  `create table if not exists denuncias (
+    id text primary key,
+    produto_id text not null references produtos(id) on delete cascade,
+    motivo text not null,
+    criada_em timestamptz not null default now(),
+    resolvida boolean not null default false
+  )`,
   `create table if not exists contatos (
     wa_id text primary key,
     cidade_id text,
@@ -77,25 +98,6 @@ const TABELAS = [
   `create table if not exists mensagens_vistas (
     id text primary key,
     em timestamptz not null default now()
-  )`,
-  `create table if not exists equipe (
-    usuario text primary key,
-    senha text not null,
-    ativo boolean not null default true,
-    erros integer not null default 0,
-    bloqueado_ate timestamptz
-  )`,
-  // Tentativas de login por endereço de internet, numa janela de 15 minutos.
-  `create table if not exists tentativas (
-    endereco text primary key,
-    janela timestamptz not null,
-    total integer not null
-  )`,
-  // O token da sessão fica só no cookie; aqui vai o hash dele.
-  `create table if not exists sessoes (
-    token_hash text primary key,
-    usuario text not null references equipe(usuario),
-    expira_em timestamptz not null
   )`,
   `insert into cidades (id, nome, uf) values ('caceres-mt', 'Cáceres', 'MT') on conflict do nothing`
 ]

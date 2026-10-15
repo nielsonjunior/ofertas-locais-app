@@ -1,107 +1,46 @@
 import { describe, expect, it } from 'vitest'
-import { buscar, comparacao, normalizar } from '../src/dominio/busca'
-import type { OfertaNaVitrine } from '../src/dominio/tipos'
+import { buscar, normalizar } from '../src/dominio/busca'
 
-function oferta(parcial: Partial<OfertaNaVitrine>): OfertaNaVitrine {
-  return {
-    id: parcial.id ?? 'x',
-    produto: 'Produto',
-    marca: '',
-    quantidade: '',
-    preco: 100,
-    precoDe: null,
-    condicao: '',
-    mercadoId: 'm1',
-    mercadoNome: 'Mercado',
-    panfletoId: 'p1',
-    ...parcial
-  }
+function p(id: string, titulo: string, lojaNome = 'Loja', descricao = '') {
+  return { id, titulo, descricao, lojaNome }
 }
 
 describe('normalizar', () => {
-  it('tira acento, maiúscula e pontuação', () => {
+  it('tira acento, maiúscula e pontuação, separa número da unidade', () => {
     expect(normalizar('Feijão  CARIOCA, Tipo-1')).toBe('feijao carioca tipo 1')
-  })
-
-  it('separa número grudado na unidade', () => {
     expect(normalizar('Arroz 5kg')).toBe('arroz 5 kg')
   })
 })
 
 describe('buscar', () => {
-  const ofertas = [
-    oferta({ id: 'a', produto: 'Arroz Tipo 1', marca: 'Tio João', quantidade: '5 kg', preco: 2799 }),
-    oferta({ id: 'b', produto: 'Arroz Parboilizado', marca: 'Camil', quantidade: '1 kg', preco: 649 }),
-    oferta({ id: 'c', produto: 'Feijão Carioca', marca: 'Kicaldo', quantidade: '1 kg', preco: 799 }),
-    oferta({ id: 'd', produto: 'Picanha Bovina', quantidade: 'kg', preco: 6990 }),
-    oferta({ id: 'e', produto: 'Bananas Prata', quantidade: '', preco: 399 })
+  const produtos = [
+    p('t', 'Tênis Nike Revolution', 'Casa do Tênis'),
+    p('c', 'Camiseta Polo', 'Moda Center', 'algodão, tamanhos P a GG'),
+    p('l', 'Limões Tahiti 1 kg', 'Hortifruti'),
+    p('o', 'Óleo Soja 900 ml', 'Atacadão')
   ]
 
-  it('acha pelo nome, sem acento e sem maiúscula', () => {
-    expect(buscar(ofertas, 'FEIJAO').map((o) => o.id)).toEqual(['c'])
+  it('acha pelo título, sem acento e sem maiúscula', () => {
+    expect(buscar(produtos, 'TENIS').map((x) => x.id)).toEqual(['t'])
   })
 
-  it('exige todas as palavras', () => {
-    expect(buscar(ofertas, 'arroz camil').map((o) => o.id)).toEqual(['b'])
+  it('acha pela descrição e pelo nome da loja', () => {
+    expect(buscar(produtos, 'algodao').map((x) => x.id)).toEqual(['c'])
+    expect(buscar(produtos, 'atacadao').map((x) => x.id)).toEqual(['o'])
   })
 
-  it('casa a quantidade escrita junta', () => {
-    expect(buscar(ofertas, 'arroz 5kg').map((o) => o.id)).toEqual(['a'])
+  it('plural e singular casam nos dois sentidos; "de" não atrapalha', () => {
+    expect(buscar(produtos, 'limão').map((x) => x.id)).toEqual(['l'])
+    expect(buscar(produtos, 'camisetas').map((x) => x.id)).toEqual(['c'])
+    expect(buscar(produtos, 'oleo de soja').map((x) => x.id)).toEqual(['o'])
   })
 
-  it('casa singular com plural', () => {
-    expect(buscar(ofertas, 'banana').map((o) => o.id)).toEqual(['e'])
-    expect(buscar(ofertas, 'picanhas').map((o) => o.id)).toEqual(['d'])
-  })
-
-  it('ordena pelo preço por kg quando dá para comparar', () => {
-    // 5 kg por 27,99 = 5,60/kg ; 1 kg por 6,49 = 6,49/kg
-    expect(buscar(ofertas, 'arroz').map((o) => o.id)).toEqual(['a', 'b'])
-  })
-
-  it('sem quantidade em alguma, ordena pelo preço e diz que não dá para comparar por kg', () => {
-    const lista = [
-      oferta({ id: 'kg', produto: 'Picanha', quantidade: 'kg', preco: 5990 }),
-      oferta({ id: 'sem', produto: 'Picanha', quantidade: '', preco: 3990 })
-    ]
-    const achadas = buscar(lista, 'picanha')
-    expect(achadas.map((o) => o.id)).toEqual(['sem', 'kg'])
-    expect(comparacao(achadas)).toBeNull()
-  })
-
-  it('não compara R$/un com R$/L', () => {
-    const lista = [
-      oferta({ id: 'pack', produto: 'Cerveja', quantidade: '12 x 350ml', preco: 3990 }),
-      oferta({ id: 'un', produto: 'Cerveja', quantidade: '1 un', preco: 399 })
-    ]
-    const achadas = buscar(lista, 'cerveja')
-    expect(achadas.map((o) => o.id)).toEqual(['un', 'pack'])
-    expect(comparacao(achadas)).toBeNull()
-  })
-
-  it('todas na mesma unidade: compara por kg', () => {
-    expect(comparacao(buscar(ofertas, 'arroz'))).toBe('kg')
-  })
-
-  it('plural e singular casam nos dois sentidos', () => {
-    const lista = [
-      oferta({ id: 't', produto: 'Tomates' }),
-      oferta({ id: 'd', produto: 'Detergente' }),
-      oferta({ id: 'p', produto: 'Pães Franceses' }),
-      oferta({ id: 'l', produto: 'Limão Tahiti' })
-    ]
-    expect(buscar(lista, 'tomate').map((o) => o.id)).toEqual(['t'])
-    expect(buscar(lista, 'detergentes').map((o) => o.id)).toEqual(['d'])
-    expect(buscar(lista, 'pão').map((o) => o.id)).toEqual(['p'])
-    expect(buscar(lista, 'limões').map((o) => o.id)).toEqual(['l'])
-  })
-
-  it('ignora de, do, da, com', () => {
-    const lista = [oferta({ id: 'o', produto: 'Óleo Soja', quantidade: '900 ml' })]
-    expect(buscar(lista, 'oleo de soja').map((o) => o.id)).toEqual(['o'])
+  it('título vem antes de descrição e loja', () => {
+    const lista = [p('d', 'Bermuda', 'Loja', 'combina com tênis'), p('t', 'Tênis Olympikus')]
+    expect(buscar(lista, 'tenis').map((x) => x.id)).toEqual(['t', 'd'])
   })
 
   it('busca vazia não devolve nada', () => {
-    expect(buscar(ofertas, '   ')).toEqual([])
+    expect(buscar(produtos, '  ')).toEqual([])
   })
 })
