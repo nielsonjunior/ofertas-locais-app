@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { publico, urlDaPagina } from '../dados/api'
+import { publico } from '../dados/api'
 import type { PanfletoPublico, Vitrine } from '../dados/api'
-import { buscar } from '../dominio/busca'
+import { buscar, comparacao } from '../dominio/busca'
 import type { Cidade } from '../dominio/tipos'
 import { CartaoDeOferta } from './CartaoDeOferta'
+import { Pagina } from './Pagina'
 import { Link, ir, lembrarCidade } from './rota'
 
 function diaMes(data: string): string {
@@ -105,6 +106,9 @@ export function PaginaDaCidade({ cidadeId }: { cidadeId: string }) {
 export function PaginaDaBusca({ cidadeId, consulta }: { cidadeId: string; consulta: string }) {
   const { dado: vitrine, erro } = useCarregar<Vitrine>(() => publico.vitrine(cidadeId), cidadeId)
   const achadas = useMemo(() => (vitrine ? buscar(vitrine.ofertas, consulta) : []), [vitrine, consulta])
+  // "mais barato" só quando todas comparam na mesma unidade; senão é só o menor preço.
+  const por = comparacao(achadas)
+  const selo = por ? (por === 'un' ? 'mais barato por unidade' : `mais barato por ${por}`) : 'menor preço'
 
   return (
     <main className="miolo">
@@ -115,7 +119,7 @@ export function PaginaDaBusca({ cidadeId, consulta }: { cidadeId: string; consul
         <h1>{achadas.length ? `${achadas.length} ${achadas.length === 1 ? 'oferta' : 'ofertas'} de "${consulta}"` : `Não achei "${consulta}"`}</h1>
         {achadas.length === 0 && <p className="suave">Tente outro nome, ou <Link para={`/c/${cidadeId}`}>veja os panfletos</Link>.</p>}
         <div className="grade">
-          {achadas.map((o, i) => <CartaoDeOferta key={o.id} oferta={o} melhor={i === 0 && achadas.length > 1} />)}
+          {achadas.map((o, i) => <CartaoDeOferta key={o.id} oferta={o} selo={i === 0 && achadas.length > 1 ? selo : ''} />)}
         </div>
       </>}
     </main>
@@ -138,7 +142,7 @@ export function PaginaDoPanfleto({ id }: { id: string }) {
         <button className={`botao pequeno ${ver === 'ofertas' ? '' : 'claro'}`} onClick={() => setVer('ofertas')} aria-selected={ver === 'ofertas'} role="tab">
           {p.ofertas.length} ofertas
         </button>
-        {p.paginas > 0 && (
+        {p.paginas.length > 0 && (
           <button className={`botao pequeno ${ver === 'paginas' ? '' : 'claro'}`} onClick={() => setVer('paginas')} aria-selected={ver === 'paginas'} role="tab">
             Panfleto original
           </button>
@@ -149,9 +153,7 @@ export function PaginaDoPanfleto({ id }: { id: string }) {
       {ver === 'ofertas'
         ? <div className="grade">{p.ofertas.map((o) => <CartaoDeOferta key={o.id} oferta={o} mostrarMercado={false} />)}</div>
         : <div className="paginas">
-            {Array.from({ length: p.paginas }, (_, i) => (
-              <img key={i} src={urlDaPagina(p.id, i + 1)} alt={`Página ${i + 1} do panfleto do ${p.mercadoNome}`} loading="lazy" />
-            ))}
+            {p.paginas.map((tipo, i) => <Pagina key={i} panfletoId={p.id} numero={i + 1} tipo={tipo} nome={p.mercadoNome} />)}
           </div>}
     </main>
   )

@@ -42,7 +42,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     // O arquivo nunca vira página: sem adivinhar tipo, sem script.
     res.setHeader('X-Content-Type-Options', 'nosniff')
     res.setHeader('Content-Security-Policy', "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox")
-    res.setHeader('Content-Disposition', 'inline')
+    // PDF baixa em vez de abrir: o visor de PDF do navegador não roda dentro do sandbox acima.
+    res.setHeader('Content-Disposition', pagina.tipo === 'application/pdf' ? `attachment; filename="panfleto-${numero}.pdf"` : 'inline')
     res.setHeader('Cache-Control', publico ? 'public, max-age=3600' : 'private, max-age=300')
     for await (const pedaco of achada.stream as unknown as AsyncIterable<Uint8Array>) res.write(pedaco)
     res.end()

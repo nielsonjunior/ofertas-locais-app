@@ -130,7 +130,9 @@ export function responder(contato: Contato | null, mensagem: string, ctx: Contex
   if (SAUDACAO.has(texto)) return { contato: atual, respostas: [menu(cidade)] }
   if (PANFLETOS.has(texto)) return { contato: atual, respostas: [panfletos(ctx, cidade)] }
 
-  const doMercado = ctx.panfletos.find((p) => normalizar(p.mercadoNome) === texto)
+  // "comper", "ofertas do atacadão", "panfleto da comper"
+  const nomeDoMercado = texto.replace(/^(ofertas?|panfletos?|encartes?)( d[oa]s?)? /, '')
+  const doMercado = ctx.panfletos.find((p) => normalizar(p.mercadoNome) === nomeDoMercado)
   if (doMercado) {
     return {
       contato: atual,

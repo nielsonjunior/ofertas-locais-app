@@ -13,8 +13,9 @@ export function useEndereco(): URL {
   return url
 }
 
-export function ir(para: string): void {
-  window.history.pushState(null, '', para)
+export function ir(para: string, trocar = false): void {
+  if (trocar) window.history.replaceState(null, '', para)
+  else window.history.pushState(null, '', para)
   window.dispatchEvent(new PopStateEvent('popstate'))
   window.scrollTo(0, 0)
 }

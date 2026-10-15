@@ -100,6 +100,11 @@ describe('quem já tem cidade', () => {
     expect(texto(r)).toContain('https://ofertas.exemplo/panfleto/p-Comper')
   })
 
+  it('"ofertas do Atacadão" e "panfleto da Comper" também', () => {
+    expect(texto(responder(pronto, 'ofertas do Atacadão', ctx, pronto.waId))).toContain('/panfleto/p-Atacad')
+    expect(texto(responder(pronto, 'Panfleto da comper', ctx, pronto.waId))).toContain('/panfleto/p-Comper')
+  })
+
   it('oi mostra o que dá para fazer', () => {
     const r = responder(pronto, 'Oi!', ctx, pronto.waId)
     expect(texto(r)).toContain('PANFLETOS')

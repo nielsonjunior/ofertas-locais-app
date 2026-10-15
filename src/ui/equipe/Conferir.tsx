@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ChangeEvent } from 'react'
-import { equipe, urlDaPagina } from '../../dados/api'
+import { equipe } from '../../dados/api'
 import type { OfertaDaConferencia, OfertaParaGravar, PanfletoDaConferencia } from '../../dados/api'
 import { prepararPagina } from '../../dados/imagem'
+import { Pagina } from '../Pagina'
 import { ir } from '../rota'
 
 /**
@@ -166,22 +167,20 @@ export function Conferir({ id }: { id: string }) {
 
       <div className="conferencia">
         <div className="paginas">
-          {Array.from({ length: p.paginas }, (_, i) => (
-            <img key={i} src={urlDaPagina(p.id, i + 1)} alt={`Página ${i + 1}`} />
-          ))}
-          {p.paginas === 0 && <p className="suave">Nenhuma página enviada.</p>}
+          {p.paginas.map((tipo, i) => <Pagina key={i} panfletoId={p.id} numero={i + 1} tipo={tipo} />)}
+          {p.paginas.length === 0 && <p className="suave">Nenhuma página enviada.</p>}
         </div>
         <div style={{ display: 'grid', gap: 8 }}>
           <strong>{p.ofertas.length} ofertas</strong>
           {p.ofertas.map((o) => (
             <Item
               key={`${o.id}-${o.confianca}`} oferta={o} pagina={o.pagina}
-              gravar={(campos) => acao(() => equipe.gravarOferta(o.id, campos))}
+              gravar={async (campos) => { await equipe.gravarOferta(o.id, campos); await recarregar() }}
               apagar={() => acao(() => equipe.apagarOferta(o.id))}
             />
           ))}
           <strong>Incluir oferta à mão</strong>
-          <Item pagina={Math.max(1, p.paginas)} gravar={(campos) => acao(async () => { await equipe.novaOferta(p.id, Math.max(1, p.paginas), campos) })} />
+          <Item pagina={Math.max(1, p.paginas.length)} gravar={async (campos) => { await equipe.novaOferta(p.id, Math.max(1, p.paginas.length), campos); await recarregar() }} />
           <button className="botao claro pequeno" onClick={() => {
             if (window.confirm('Apagar este panfleto e todas as ofertas dele?')) void acao(async () => { await equipe.apagarPanfleto(p.id); ir('/equipe') })
           }}>Apagar panfleto</button>

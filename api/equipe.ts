@@ -84,7 +84,7 @@ async function lerUmaPagina(req: IncomingMessage, sql: Sql, panfletoId: string) 
   // sem conferência. A trava vence sozinha depois do tempo máximo da função.
   const marcado = await sql`
     update panfletos set paginas = paginas || ${JSON.stringify([{ caminho, tipo }])}::jsonb,
-                         estado = 'conferir', lendo_ate = now() + interval '3 minutes'
+                         estado = 'conferir', lendo_ate = now() + interval '6 minutes'
      where id = ${panfletoId} and estado <> 'publicado'
     returning id`
   if (marcado.length === 0) {
@@ -222,7 +222,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
             from ofertas where panfleto_id = ${id} order by pagina, confianca desc, produto`
         responderJson(res, 200, {
           id: p.id, estado: p.estado, validoDe: p.valido_de, validoAte: p.valido_ate,
-          mercadoNome: p.mercado_nome, paginas: (p.paginas as unknown[]).length,
+          mercadoNome: p.mercado_nome, paginas: (p.paginas as { tipo: string }[]).map((x) => x.tipo),
           ofertas: ofertas.map((o) => ({
             id: o.id, produto: o.produto, marca: o.marca, quantidade: o.quantidade, preco: o.preco,
             precoDe: o.preco_de, condicao: o.condicao, pagina: o.pagina, confianca: o.confianca

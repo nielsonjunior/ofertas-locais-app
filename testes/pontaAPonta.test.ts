@@ -160,7 +160,7 @@ describe.skipIf(!URL_DE_TESTE)('de ponta a ponta', () => {
       expect(v.ofertas.map((o: any) => [o.produto, o.preco])).toEqual([['Feijão Carioca', 749], ['Arroz Tipo 1', 2799]])
 
       const p = (await chamar(publico, 'GET', `/api/publico?acao=panfleto&id=${panfletoId}`)).json()
-      expect(p).toMatchObject({ mercadoNome: 'Atacadão', vencido: false, paginas: 1 })
+      expect(p).toMatchObject({ mercadoNome: 'Atacadão', vencido: false, paginas: ['image/jpeg'] })
 
       const img = await chamar(arquivo, 'GET', `/api/arquivo?panfleto=${panfletoId}&pagina=1`)
       expect(img.status).toBe(200)

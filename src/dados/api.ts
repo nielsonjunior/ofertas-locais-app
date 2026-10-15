@@ -53,7 +53,8 @@ export interface PanfletoPublico {
   validoDe: string
   validoAte: string
   vencido: boolean
-  paginas: number
+  /** O tipo de cada página: imagem ou PDF. */
+  paginas: string[]
   ofertas: OfertaNaVitrine[]
 }
 
@@ -106,7 +107,8 @@ export interface PanfletoDaConferencia {
   validoDe: string
   validoAte: string
   mercadoNome: string
-  paginas: number
+  /** O tipo de cada página: imagem ou PDF. */
+  paginas: string[]
   ofertas: OfertaDaConferencia[]
 }
 

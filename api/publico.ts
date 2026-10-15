@@ -39,7 +39,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       case 'panfleto': {
         const id = parametro(req, 'id')
         const [p] = await sql`
-          select p.id, p.valido_de, p.valido_ate, jsonb_array_length(p.paginas) as paginas,
+          select p.id, p.valido_de, p.valido_ate, p.paginas,
                  m.id as mercado_id, m.nome as mercado_nome, m.endereco as mercado_endereco,
                  m.cidade_id
             from panfletos p join mercados m on m.id = p.mercado_id
@@ -53,7 +53,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           validoDe: String(p.valido_de),
           validoAte: String(p.valido_ate),
           vencido: String(p.valido_ate) < hoje,
-          paginas: Number(p.paginas),
+          paginas: (p.paginas as { tipo: string }[]).map((x) => x.tipo),
           ofertas: await ofertasDoPanfleto(sql, id)
         })
         return

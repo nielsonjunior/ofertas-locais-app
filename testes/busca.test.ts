@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buscar, normalizar } from '../src/dominio/busca'
+import { buscar, comparacao, normalizar } from '../src/dominio/busca'
 import type { OfertaNaVitrine } from '../src/dominio/tipos'
 
 function oferta(parcial: Partial<OfertaNaVitrine>): OfertaNaVitrine {
@@ -59,12 +59,46 @@ describe('buscar', () => {
     expect(buscar(ofertas, 'arroz').map((o) => o.id)).toEqual(['a', 'b'])
   })
 
-  it('quem não tem quantidade vai depois de quem tem', () => {
+  it('sem quantidade em alguma, ordena pelo preço e diz que não dá para comparar por kg', () => {
     const lista = [
-      oferta({ id: 's', produto: 'Leite', quantidade: '', preco: 300 }),
-      oferta({ id: 't', produto: 'Leite', quantidade: '1 L', preco: 499 })
+      oferta({ id: 'kg', produto: 'Picanha', quantidade: 'kg', preco: 5990 }),
+      oferta({ id: 'sem', produto: 'Picanha', quantidade: '', preco: 3990 })
     ]
-    expect(buscar(lista, 'leite').map((o) => o.id)).toEqual(['t', 's'])
+    const achadas = buscar(lista, 'picanha')
+    expect(achadas.map((o) => o.id)).toEqual(['sem', 'kg'])
+    expect(comparacao(achadas)).toBeNull()
+  })
+
+  it('não compara R$/un com R$/L', () => {
+    const lista = [
+      oferta({ id: 'pack', produto: 'Cerveja', quantidade: '12 x 350ml', preco: 3990 }),
+      oferta({ id: 'un', produto: 'Cerveja', quantidade: '1 un', preco: 399 })
+    ]
+    const achadas = buscar(lista, 'cerveja')
+    expect(achadas.map((o) => o.id)).toEqual(['un', 'pack'])
+    expect(comparacao(achadas)).toBeNull()
+  })
+
+  it('todas na mesma unidade: compara por kg', () => {
+    expect(comparacao(buscar(ofertas, 'arroz'))).toBe('kg')
+  })
+
+  it('plural e singular casam nos dois sentidos', () => {
+    const lista = [
+      oferta({ id: 't', produto: 'Tomates' }),
+      oferta({ id: 'd', produto: 'Detergente' }),
+      oferta({ id: 'p', produto: 'Pães Franceses' }),
+      oferta({ id: 'l', produto: 'Limão Tahiti' })
+    ]
+    expect(buscar(lista, 'tomate').map((o) => o.id)).toEqual(['t'])
+    expect(buscar(lista, 'detergentes').map((o) => o.id)).toEqual(['d'])
+    expect(buscar(lista, 'pão').map((o) => o.id)).toEqual(['p'])
+    expect(buscar(lista, 'limões').map((o) => o.id)).toEqual(['l'])
+  })
+
+  it('ignora de, do, da, com', () => {
+    const lista = [oferta({ id: 'o', produto: 'Óleo Soja', quantidade: '900 ml' })]
+    expect(buscar(lista, 'oleo de soja').map((o) => o.id)).toEqual(['o'])
   })
 
   it('busca vazia não devolve nada', () => {

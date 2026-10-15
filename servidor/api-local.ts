@@ -15,17 +15,25 @@ export function apiLocal(): Plugin {
     name: 'api-local',
     configureServer(server) {
       // Com DATABASE_URL_LOCAL, os endereços usam um Postgres comum no lugar do Neon.
+      // O Vite recarrega api/_banco.ts quando um arquivo muda; cada instância
+      // nova do módulo recebe a conexão de novo (o pool é um só).
       const urlLocal = process.env.DATABASE_URL_LOCAL
-      const pronto = urlLocal
-        ? Promise.all([server.ssrLoadModule(PASTA_API + '_banco.ts'), server.ssrLoadModule(PASTA_SERVIDOR + 'pgLocal.ts')])
-            .then(([banco, pg]) => banco.usarConexao(pg.conexaoLocal(urlLocal).sql))
-        : Promise.resolve()
+      const ligados = new WeakSet<object>()
+      let sql: unknown = null
+      async function ligar(): Promise<void> {
+        if (!urlLocal) return
+        const banco = await server.ssrLoadModule(PASTA_API + '_banco.ts')
+        if (ligados.has(banco)) return
+        sql ??= (await server.ssrLoadModule(PASTA_SERVIDOR + 'pgLocal.ts')).conexaoLocal(urlLocal).sql
+        banco.usarConexao(sql)
+        ligados.add(banco)
+      }
       for (const endereco of ENDERECOS) {
         server.middlewares.use(endereco, (req, res) => {
           // O Connect tira o prefixo do endereço; o código de api/ espera a URL inteira.
           req.url = endereco + (req.url === '/' ? '' : req.url ?? '')
           const arquivo = PASTA_API + endereco.replace('/api/', '') + '.ts'
-          void pronto.then(() => server.ssrLoadModule(arquivo)).then((modulo) => {
+          void ligar().then(() => server.ssrLoadModule(arquivo)).then((modulo) => {
             void (modulo.default as (a: unknown, b: unknown) => Promise<void>)(req, res)
           })
         })

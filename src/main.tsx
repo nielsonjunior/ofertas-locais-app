@@ -14,7 +14,8 @@ function App() {
   if (caminho === '/') {
     const lembrada = cidadeLembrada()
     if (lembrada && !url.searchParams.has('trocar')) {
-      queueMicrotask(() => ir(`/c/${lembrada}`))
+      // replace, não push: senão o Voltar cai em "/" e é mandado de volta para a cidade.
+      queueMicrotask(() => ir(`/c/${lembrada}`, true))
       pagina = null
     } else {
       pagina = <EscolherCidade />

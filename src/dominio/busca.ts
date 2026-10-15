@@ -17,14 +17,24 @@ export function normalizar(texto: string): string {
     .trim()
 }
 
-/** Plural simples do português: bananas → banana, pães → pae, limões → limoe. Basta para casar. */
+/**
+ * A mesma raiz para singular e plural, aplicada dos dois lados: limão e
+ * limões → limao; tomate e tomates → tomat; pão e pães → pao. Não é
+ * gramática, é só o bastante para casar.
+ */
 function raiz(palavra: string): string {
   if (/^\d+$/.test(palavra) || palavra.length <= 3) return palavra
-  return palavra.replace(/(oes|aes|es|s)$/, '')
+  let r = palavra.replace(/(oes|aes)$/, 'ao')
+  if (r.length > 3) r = r.replace(/s$/, '')
+  if (r.length > 3) r = r.replace(/e$/, '')
+  return r
 }
 
-function palavras(texto: string): string[] {
-  return normalizar(texto).split(' ').filter(Boolean).map(raiz)
+/** Palavras que não ajudam a achar: "óleo de soja" acha "Óleo Soja". */
+const VAZIAS = new Set(['de', 'do', 'da', 'dos', 'das', 'com', 'e', 'para', 'em'])
+
+function palavras(texto: string, tirarVazias = false): string[] {
+  return normalizar(texto).split(' ').filter((p) => p && !(tirarVazias && VAZIAS.has(p))).map(raiz)
 }
 
 function casa(oferta: OfertaNaVitrine, termos: string[]): boolean {
@@ -32,18 +42,26 @@ function casa(oferta: OfertaNaVitrine, termos: string[]): boolean {
   return termos.every((termo) => texto.some((p) => p === termo || (termo.length >= 3 && p.startsWith(termo))))
 }
 
-/** Chave de ordem: quem tem preço por unidade vem antes, e o mais barato primeiro. */
-function chave(oferta: OfertaNaVitrine): [number, number] {
-  const porUnidade = precoPorUnidade(oferta.preco, lerQuantidade(oferta.quantidade))
-  return porUnidade ? [0, porUnidade.centavos] : [1, oferta.preco]
+function porUnidade(o: OfertaNaVitrine) {
+  return precoPorUnidade(o.preco, lerQuantidade(o.quantidade))
 }
 
+/**
+ * Se todas as ofertas achadas têm preço por kg (ou todas por L, ou todas por
+ * unidade), devolve essa unidade; senão null. Só assim "mais barato" é verdade.
+ */
+export function comparacao(ofertas: OfertaNaVitrine[]): 'kg' | 'L' | 'un' | null {
+  const unidades = new Set(ofertas.map((o) => porUnidade(o)?.por ?? null))
+  const [unica] = [...unidades]
+  return unidades.size === 1 && unica ? unica : null
+}
+
+/** As ofertas que casam, mais barata primeiro: por kg/L quando dá para comparar, senão pelo preço. */
 export function buscar(ofertas: OfertaNaVitrine[], consulta: string): OfertaNaVitrine[] {
-  const termos = palavras(consulta)
+  const termos = palavras(consulta, true)
   if (termos.length === 0) return []
-  return ofertas
-    .filter((o) => casa(o, termos))
-    .map((o) => ({ o, k: chave(o) }))
-    .sort((a, b) => a.k[0] - b.k[0] || a.k[1] - b.k[1] || a.o.preco - b.o.preco)
-    .map(({ o }) => o)
+  const achadas = ofertas.filter((o) => casa(o, termos))
+  const porKg = comparacao(achadas) !== null
+  const valor = (o: OfertaNaVitrine) => (porKg ? porUnidade(o)!.centavos : o.preco)
+  return achadas.sort((a, b) => valor(a) - valor(b) || a.preco - b.preco)
 }

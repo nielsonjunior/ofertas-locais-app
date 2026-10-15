@@ -41,7 +41,9 @@ export async function lerPagina(
   arquivo: Buffer,
   tipo: TipoDaPagina,
   hoje: string,
-  cliente: ClienteDaIa = new Anthropic()
+  // Sem nova tentativa e com teto abaixo do maxDuration da função (vercel.json):
+  // se a leitura demorar demais, cai no "digite à mão" em vez de a função morrer.
+  cliente: ClienteDaIa = new Anthropic({ timeout: 240_000, maxRetries: 0 })
 ): Promise<Leitura> {
   const dados = arquivo.toString('base64')
   const anexo: Anthropic.Beta.BetaContentBlockParam = tipo === 'application/pdf'

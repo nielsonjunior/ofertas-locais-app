@@ -2,18 +2,19 @@ import { emReais } from '../dominio/dinheiro'
 import type { OfertaNaVitrine } from '../dominio/tipos'
 import { lerQuantidade, precoPorUnidade } from '../dominio/unidade'
 
-export function CartaoDeOferta({ oferta, mostrarMercado = true, melhor = false }: {
+export function CartaoDeOferta({ oferta, mostrarMercado = true, selo = '' }: {
   oferta: OfertaNaVitrine
   mostrarMercado?: boolean
-  melhor?: boolean
+  /** "mais barato por kg" na primeira da busca; vazio nas outras. */
+  selo?: string
 }) {
   const porUnidade = precoPorUnidade(oferta.preco, lerQuantidade(oferta.quantidade))
   const desconto = oferta.precoDe ? Math.round((1 - oferta.preco / oferta.precoDe) * 100) : 0
 
   return (
     <div className="cartao oferta">
-      {melhor && <span className="selo melhor">mais barato</span>}
-      {!melhor && desconto >= 10 && <span className="selo">-{desconto}%</span>}
+      {selo && <span className="selo melhor">{selo}</span>}
+      {!selo && desconto >= 10 && <span className="selo">-{desconto}%</span>}
       <span className="nome">{[oferta.produto, oferta.marca].filter(Boolean).join(' ')}</span>
       {oferta.quantidade && <span className="suave pequeno">{oferta.quantidade}</span>}
       {oferta.precoDe && <span className="preco-de">{emReais(oferta.precoDe)}</span>}
