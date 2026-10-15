@@ -1,4 +1,4 @@
-import type { Cidade, OfertaNaVitrine } from '../dominio/tipos'
+import type { Cidade, EstadoDaLoja, ProdutoDaLoja, ProdutoNaVitrine } from '../dominio/tipos'
 
 /** Conversa com /api. A mensagem de erro do servidor já vem escrita para a tela. */
 
@@ -13,7 +13,7 @@ async function pedir<T>(url: string, init: RequestInit = {}): Promise<T> {
   const cabecalhos: Record<string, string> = { ...(init.headers as Record<string, string>) }
   // Marca do site: o servidor recusa mudança sem ela (CSRF).
   if (metodo !== 'GET') cabecalhos['X-Requested-With'] = 'ofertas'
-  if (init.body && typeof init.body === 'string') cabecalhos['Content-Type'] = 'application/json'
+  if (typeof init.body === 'string') cabecalhos['Content-Type'] = 'application/json'
 
   let resposta: Response
   try {
@@ -23,134 +23,154 @@ async function pedir<T>(url: string, init: RequestInit = {}): Promise<T> {
   }
   if (resposta.status === 204) return undefined as T
   const corpo = await resposta.json().catch(() => ({}))
-  if (!resposta.ok) throw new ErroDaApi(String(corpo.erro ?? 'algo deu errado'), resposta.status)
+  if (!resposta.ok) throw new ErroDaApi(String(corpo.erro ?? 'algo deu errado; tente de novo'), resposta.status)
   return corpo as T
 }
-
-export interface PanfletoResumo {
-  id: string
-  mercadoId: string
-  mercadoNome: string
-  mercadoEndereco: string
-  validoDe: string
-  validoAte: string
-  paginas: number
-  ofertas: number
-}
-
-export interface Vitrine {
-  cidade: Cidade
-  hoje: string
-  panfletos: PanfletoResumo[]
-  ofertas: OfertaNaVitrine[]
-}
-
-export interface PanfletoPublico {
-  id: string
-  cidadeId: string
-  mercadoNome: string
-  mercadoEndereco: string
-  validoDe: string
-  validoAte: string
-  vencido: boolean
-  /** O tipo de cada página: imagem ou PDF. */
-  paginas: string[]
-  ofertas: OfertaNaVitrine[]
-}
-
-export const publico = {
-  cidades: () => pedir<Cidade[]>('/api/publico?acao=cidades'),
-  vitrine: (cidade: string) => pedir<Vitrine>(`/api/publico?acao=vitrine&cidade=${encodeURIComponent(cidade)}`),
-  panfleto: (id: string) => pedir<PanfletoPublico>(`/api/publico?acao=panfleto&id=${encodeURIComponent(id)}`)
-}
-
-export function urlDaPagina(panfletoId: string, pagina: number): string {
-  return `/api/arquivo?panfleto=${encodeURIComponent(panfletoId)}&pagina=${pagina}`
-}
-
-/* --- equipe --- */
-
-export interface Mercado {
-  id: string
-  cidadeId: string
-  nome: string
-  endereco: string
-  ativo: boolean
-}
-
-export interface PanfletoDaLista {
-  id: string
-  estado: 'lendo' | 'conferir' | 'publicado'
-  validoDe: string
-  validoAte: string
-  mercadoNome: string
-  paginas: number
-  ofertas: number
-  duvidas: number
-}
-
-export interface OfertaDaConferencia {
-  id: string
-  produto: string
-  marca: string
-  quantidade: string
-  preco: number
-  precoDe: number | null
-  condicao: string
-  pagina: number
-  confianca: 'alta' | 'baixa'
-}
-
-export interface PanfletoDaConferencia {
-  id: string
-  estado: PanfletoDaLista['estado']
-  validoDe: string
-  validoAte: string
-  mercadoNome: string
-  /** O tipo de cada página: imagem ou PDF. */
-  paginas: string[]
-  ofertas: OfertaDaConferencia[]
-}
-
-export interface OfertaParaGravar {
-  produto: string
-  marca: string
-  quantidade: string
-  preco: string
-  precoDe: string
-  condicao: string
-}
-
-const E = '/api/equipe?acao='
 
 function json(metodo: string, corpo: unknown): RequestInit {
   return { method: metodo, body: JSON.stringify(corpo) }
 }
 
-export const equipe = {
-  eu: () => pedir<{ usuario: string | null }>(`${E}eu`),
-  entrar: (usuario: string, senha: string) => pedir<{ usuario: string }>(`${E}entrar`, json('POST', { usuario, senha })),
-  sair: () => pedir<void>(`${E}sair`, { method: 'POST' }),
-  mercados: () => pedir<{ cidades: Cidade[]; mercados: Mercado[] }>(`${E}mercados`),
-  novoMercado: (cidadeId: string, nome: string, endereco: string) =>
-    pedir<{ id: string }>(`${E}mercado`, json('POST', { cidadeId, nome, endereco })),
-  novaCidade: (nome: string, uf: string) => pedir<{ id: string }>(`${E}cidade`, json('POST', { nome, uf })),
-  panfletos: () => pedir<PanfletoDaLista[]>(`${E}panfletos`),
-  novoPanfleto: (mercadoId: string, validoDe: string, validoAte: string) =>
-    pedir<{ id: string }>(`${E}panfleto`, json('POST', { mercadoId, validoDe, validoAte })),
-  panfleto: (id: string) => pedir<PanfletoDaConferencia>(`${E}panfleto&id=${encodeURIComponent(id)}`),
-  validade: (id: string, validoDe: string, validoAte: string) =>
-    pedir<void>(`${E}panfleto`, json('PUT', { id, validoDe, validoAte })),
-  apagarPanfleto: (id: string) => pedir<void>(`${E}panfleto&id=${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  enviarPagina: (panfletoId: string, arquivo: Blob) =>
-    pedir<{ pagina: number; lidas: number; descartadas: number; aviso: string }>(
-      `${E}pagina&panfleto=${encodeURIComponent(panfletoId)}`,
-      { method: 'POST', body: arquivo, headers: { 'Content-Type': arquivo.type } }
-    ),
-  novaOferta: (panfletoId: string, pagina: number, o: OfertaParaGravar) =>
-    pedir<{ id: string }>(`${E}oferta`, json('POST', { panfletoId, pagina, ...o })),
-  gravarOferta: (id: string, o: OfertaParaGravar) => pedir<void>(`${E}oferta`, json('PUT', { id, ...o })),
-  apagarOferta: (id: string) => pedir<void>(`${E}oferta&id=${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  publicar: (id: string) => pedir<void>(`${E}publicar`, json('POST', { id })),
-  despublicar: (id: string) => pedir<void>(`${E}despublicar`, json('POST', { id }))
+/* --- público --- */
+
+export interface Feed {
+  cidade: Cidade
+  produtos: ProdutoNaVitrine[]
+}
+
+export interface LojaPublica {
+  id: string
+  nome: string
+  categoria: string
+  whatsapp: string
+  endereco: string
+  descricao: string
+  cidadeId: string
+  cidadeNome: string
+  produtos: ProdutoNaVitrine[]
+}
+
+export const MOTIVOS_DE_DENUNCIA = [
+  { id: 'golpe', nome: 'Parece golpe' },
+  { id: 'proibido', nome: 'Produto proibido' },
+  { id: 'preco-errado', nome: 'Preço ou produto enganoso' },
+  { id: 'ofensivo', nome: 'Conteúdo ofensivo' },
+  { id: 'outro', nome: 'Outro motivo' }
+] as const
+
+const P = '/api/publico?acao='
+
+export const publico = {
+  cidades: () => pedir<Cidade[]>(`${P}cidades`),
+  feed: (cidade: string, categoria = '') =>
+    pedir<Feed>(`${P}feed&cidade=${encodeURIComponent(cidade)}${categoria ? `&categoria=${encodeURIComponent(categoria)}` : ''}`),
+  produto: (id: string) => pedir<ProdutoNaVitrine & { cidadeId: string }>(`${P}produto&id=${encodeURIComponent(id)}`),
+  loja: (id: string) => pedir<LojaPublica>(`${P}loja&id=${encodeURIComponent(id)}`),
+  denunciar: (produtoId: string, motivo: string) => pedir<void>(`${P}denuncia`, json('POST', { produtoId, motivo })),
+  /** Conta sem esperar resposta, e não reclama se falhar: é só estatística. */
+  vistas: (ids: string[]) => { void fetch(`${P}vistas`, { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }).catch(() => {}) },
+  clique: (id: string) => { void fetch(`${P}clique`, { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) }).catch(() => {}) }
+}
+
+/* --- conta --- */
+
+export interface Sessao {
+  usuario: string
+  papel: 'admin' | 'lojista'
+  lojaId: string | null
+}
+
+export interface Cadastro {
+  usuario: string
+  senha: string
+  cidadeId: string
+  nome: string
+  categoria: string
+  whatsapp: string
+  endereco: string
+  descricao: string
+  aceite: boolean
+}
+
+const C = '/api/conta?acao='
+
+export const conta = {
+  eu: () => pedir<{ sessao: Sessao | null }>(`${C}eu`),
+  entrar: (usuario: string, senha: string) => pedir<{ sessao: Sessao }>(`${C}entrar`, json('POST', { usuario, senha })),
+  sair: () => pedir<void>(`${C}sair`, { method: 'POST' }),
+  cadastrar: (dados: Cadastro) => pedir<{ sessao: Sessao }>(`${C}cadastrar`, json('POST', dados))
+}
+
+/* --- lojista --- */
+
+export interface MinhaLoja {
+  id: string
+  cidadeId: string
+  nome: string
+  categoria: string
+  whatsapp: string
+  endereco: string
+  descricao: string
+  estado: EstadoDaLoja
+}
+
+export interface ProdutoParaGravar {
+  titulo: string
+  descricao: string
+  categoria: string
+  preco: string
+  precoDe: string
+  fotos: string[]
+}
+
+const L = '/api/loja?acao='
+
+export const lojista = {
+  minha: () => pedir<{ loja: MinhaLoja; produtos: ProdutoDaLoja[] }>(`${L}minha`),
+  gravarLoja: (dados: Omit<MinhaLoja, 'id' | 'cidadeId' | 'estado'>) => pedir<void>(`${L}loja`, json('PUT', dados)),
+  enviarFoto: (foto: Blob) => pedir<{ url: string }>(`${L}foto`, { method: 'POST', body: foto, headers: { 'Content-Type': foto.type } }),
+  novoProduto: (p: ProdutoParaGravar) => pedir<{ id: string }>(`${L}produto`, json('POST', p)),
+  gravarProduto: (id: string, p: ProdutoParaGravar) => pedir<void>(`${L}produto`, json('PUT', { id, ...p })),
+  ativo: (id: string, ativo: boolean) => pedir<void>(`${L}ativo`, json('POST', { id, ativo })),
+  apagar: (id: string) => pedir<void>(`${L}produto&id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+}
+
+/* --- administrador --- */
+
+export interface LojaNoAdmin {
+  id: string
+  nome: string
+  categoria: string
+  whatsapp: string
+  endereco: string
+  descricao: string
+  estado: EstadoDaLoja
+  cidade: string
+  usuario: string
+  produtos: number
+  criadaEm: string
+}
+
+export interface Denuncia {
+  id: string
+  motivo: string
+  criadaEm: string
+  produtoId: string
+  titulo: string
+  foto: string
+  preco: number
+  ativo: boolean
+  lojaId: string
+  lojaNome: string
+}
+
+const A = '/api/admin?acao='
+
+export const administrador = {
+  lojas: (estado = '') => pedir<LojaNoAdmin[]>(`${A}lojas${estado ? `&estado=${estado}` : ''}`),
+  estado: (id: string, estado: EstadoDaLoja) => pedir<void>(`${A}estado-da-loja`, json('POST', { id, estado })),
+  denuncias: () => pedir<Denuncia[]>(`${A}denuncias`),
+  tirarDoAr: (produtoId: string) => pedir<void>(`${A}tirar-do-ar`, json('POST', { produtoId })),
+  resolver: (id: string) => pedir<void>(`${A}resolver`, json('POST', { id })),
+  novaCidade: (nome: string, uf: string) => pedir<{ id: string }>(`${A}cidade`, json('POST', { nome, uf }))
 }

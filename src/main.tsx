@@ -1,38 +1,50 @@
-import { StrictMode } from 'react'
+import { StrictMode, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import './estilo.css'
-import { EscolherCidade, PaginaDaBusca, PaginaDaCidade, PaginaDoPanfleto } from './ui/Consumidor'
-import { Equipe } from './ui/equipe/Equipe'
+import { Admin } from './ui/Admin'
+import { Feed } from './ui/Feed'
+import { EscolherCidade, PaginaDaBusca, PaginaDaLoja, PaginaDoProduto, PaginaDosSalvos } from './ui/Paginas'
+import { Vender } from './ui/Vender'
 import { Link, cidadeLembrada, ir, useEndereco } from './ui/rota'
+
+function Barra({ caminho, cidade }: { caminho: string; cidade: string }) {
+  const atual = (prefixo: string) => (caminho === prefixo || caminho.startsWith(`${prefixo}/`) ? 'page' : undefined)
+  return (
+    <nav className="barra" aria-label="Principal">
+      <Link para={cidade ? `/c/${cidade}` : '/'} aria-current={caminho.startsWith('/c/') ? 'page' : undefined}><span className="icone">🏠</span>Início</Link>
+      <Link para={`/busca${cidade ? `?cidade=${cidade}` : ''}`} aria-current={atual('/busca')}><span className="icone">🔍</span>Buscar</Link>
+      <Link para="/salvos" aria-current={atual('/salvos')}><span className="icone">♡</span>Salvos</Link>
+      <Link para="/vender" aria-current={atual('/vender')}><span className="icone">🏪</span>Vender</Link>
+    </nav>
+  )
+}
 
 function App() {
   const url = useEndereco()
   const caminho = url.pathname
-  const cidade = /^\/c\/([\w-]+)$/.exec(caminho)?.[1] ?? url.searchParams.get('cidade') ?? ''
+  const parte = (prefixo: string) => (caminho.startsWith(prefixo) ? decodeURIComponent(caminho.slice(prefixo.length)) : '')
+  const cidade = parte('/c/') || url.searchParams.get('cidade') || cidadeLembrada()
+
+  // Com cidade lembrada, "/" vai direto ao feed. replace, não push: senão o
+  // Voltar cai em "/" e é mandado de volta para o feed.
+  const vaiParaOFeed = caminho === '/' && cidadeLembrada() && !url.searchParams.has('trocar')
+  useEffect(() => { if (vaiParaOFeed) ir(`/c/${cidadeLembrada()}`, true) }, [vaiParaOFeed])
 
   let pagina
-  if (caminho === '/') {
-    const lembrada = cidadeLembrada()
-    if (lembrada && !url.searchParams.has('trocar')) {
-      // replace, não push: senão o Voltar cai em "/" e é mandado de volta para a cidade.
-      queueMicrotask(() => ir(`/c/${lembrada}`, true))
-      pagina = null
-    } else {
-      pagina = <EscolherCidade />
-    }
-  } else if (caminho.startsWith('/c/')) pagina = <PaginaDaCidade cidadeId={cidade} />
-  else if (caminho === '/busca') pagina = <PaginaDaBusca cidadeId={cidade} consulta={url.searchParams.get('q') ?? ''} />
-  else if (caminho.startsWith('/panfleto/')) pagina = <PaginaDoPanfleto id={caminho.slice('/panfleto/'.length)} />
-  else if (caminho.startsWith('/equipe')) pagina = <Equipe caminho={caminho} />
+  if (caminho === '/') pagina = vaiParaOFeed ? null : <EscolherCidade />
+  else if (caminho.startsWith('/c/')) pagina = <Feed key={cidade} cidadeId={cidade} />
+  else if (caminho.startsWith('/p/')) pagina = <PaginaDoProduto key={caminho} id={parte('/p/')} />
+  else if (caminho.startsWith('/loja/')) pagina = <PaginaDaLoja key={caminho} id={parte('/loja/')} />
+  else if (caminho === '/busca') pagina = <PaginaDaBusca cidadeId={url.searchParams.get('cidade') ?? ''} consulta={url.searchParams.get('q') ?? ''} />
+  else if (caminho === '/salvos') pagina = <PaginaDosSalvos />
+  else if (caminho === '/vender') pagina = <Vender />
+  else if (caminho === '/admin') pagina = <Admin />
   else pagina = <main className="miolo"><h1>Página não encontrada</h1><Link para="/">Início</Link></main>
 
   return (
     <>
-      <header className="topo">
-        <Link para={cidade ? `/c/${cidade}` : '/'}>Ofertas Locais</Link>
-        {!caminho.startsWith('/equipe') && <Link para="/?trocar" className="cidade">trocar cidade</Link>}
-      </header>
       {pagina}
+      <Barra caminho={caminho} cidade={cidade} />
     </>
   )
 }

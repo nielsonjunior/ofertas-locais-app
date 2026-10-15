@@ -20,13 +20,13 @@ export function ir(para: string, trocar = false): void {
   window.scrollTo(0, 0)
 }
 
-export function Link({ para, children, className }: { para: string; children: ReactNode; className?: string }) {
+export function Link({ para, children, className, ...resto }: { para: string; children: ReactNode; className?: string; 'aria-current'?: 'page' }) {
   function clicar(e: MouseEvent<HTMLAnchorElement>) {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
     e.preventDefault()
     ir(para)
   }
-  return <a href={para} onClick={clicar} className={className}>{children}</a>
+  return <a href={para} onClick={clicar} className={className} {...resto}>{children}</a>
 }
 
 const CHAVE_DA_CIDADE = 'ofertas.cidade'

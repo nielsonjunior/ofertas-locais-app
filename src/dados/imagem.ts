@@ -1,18 +1,14 @@
 /**
- * Encolhe a foto do panfleto antes de enviar: a Vercel recusa corpo acima de
- * 4,5 MB, e foto de celular passa disso. 2000 px no lado maior ainda deixa
- * a letra miúda legível para a IA.
+ * Encolhe a foto do produto antes de enviar: a Vercel recusa corpo acima de
+ * 4,5 MB, e foto de celular passa disso. 1600 px no lado maior basta para a
+ * tela cheia do feed.
  */
 
-const LADO_MAXIMO = 2000
+const LADO_MAXIMO = 1600
 const LIMITE = 4 * 1024 * 1024
 
-export async function prepararPagina(arquivo: File): Promise<Blob> {
-  if (arquivo.type === 'application/pdf') {
-    if (arquivo.size > LIMITE) throw new Error('PDF acima de 4 MB: envie as páginas como fotos')
-    return arquivo
-  }
-  if (!arquivo.type.startsWith('image/')) throw new Error('mande foto ou PDF')
+export async function prepararFoto(arquivo: File): Promise<Blob> {
+  if (!arquivo.type.startsWith('image/')) throw new Error('mande uma foto')
 
   const imagem = await createImageBitmap(arquivo)
   const escala = Math.min(1, LADO_MAXIMO / Math.max(imagem.width, imagem.height))

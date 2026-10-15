@@ -1,7 +1,7 @@
 {
   "name": "Ofertas Locais",
   "short_name": "Ofertas",
-  "description": "Os panfletos dos mercados da sua cidade, no celular",
+  "description": "O que as lojas da sua cidade estão vendendo, agora",
   "lang": "pt-BR",
   "start_url": "/",
   "display": "standalone",
