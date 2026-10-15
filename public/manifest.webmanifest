@@ -1,0 +1,11 @@
+{
+  "name": "Ofertas Locais",
+  "short_name": "Ofertas",
+  "description": "Os panfletos dos mercados da sua cidade, no celular",
+  "lang": "pt-BR",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fffaf0",
+  "theme_color": "#c8102e",
+  "icons": [{ "src": "/icone.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

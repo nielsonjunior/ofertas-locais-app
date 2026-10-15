@@ -1,12 +1,11 @@
 import pg from 'pg'
-import type { Sql } from '../../api/_banco'
+import type { Sql } from '../api/_banco'
 
 /**
- * Um Postgres local fingindo ser o driver do Neon: o mesmo jeito de chamar
- * (sql`...`, sql.query, sql.transaction), para os testes rodarem os endereços
- * de verdade contra um banco de verdade.
- *
- * Liga com DATABASE_URL_TESTE; sem ela, os testes de banco são pulados.
+ * Um Postgres comum fingindo ser o driver do Neon: o mesmo jeito de chamar
+ * (sql`...`, sql.query, sql.transaction). Serve aos testes de ponta a ponta
+ * (DATABASE_URL_TESTE) e ao `npm run dev` sem Neon (DATABASE_URL_LOCAL).
+ * Nunca roda publicado.
  */
 
 export const URL_DE_TESTE = process.env.DATABASE_URL_TESTE ?? ''
@@ -16,10 +15,8 @@ interface Consulta extends PromiseLike<Record<string, unknown>[]> {
   valores: unknown[]
 }
 
-export function conexaoDeTeste(): { sql: Sql; fechar: () => Promise<void>; limpar: () => Promise<void> } {
-  // limpar() apaga o banco inteiro: só num banco cujo nome diz que é de teste.
-  if (!/teste/.test(new URL(URL_DE_TESTE).pathname)) throw new Error('DATABASE_URL_TESTE precisa apontar para um banco com "teste" no nome')
-  const pool = new pg.Pool({ connectionString: URL_DE_TESTE, max: 4 })
+export function conexaoLocal(url: string): { sql: Sql; fechar: () => Promise<void>; limpar: () => Promise<void> } {
+  const pool = new pg.Pool({ connectionString: url, max: 4 })
 
   function consulta(texto: string, valores: unknown[], cliente: pg.Pool | pg.PoolClient = pool): Consulta {
     return {
@@ -57,6 +54,8 @@ export function conexaoDeTeste(): { sql: Sql; fechar: () => Promise<void>; limpa
     sql,
     fechar: () => pool.end(),
     limpar: async () => {
+      // Apaga o banco inteiro: só num banco cujo nome diz que é de teste.
+      if (!/teste/.test(new URL(url).pathname)) throw new Error('limpar() só em banco com "teste" no nome')
       await pool.query(`drop schema public cascade; create schema public`)
     }
   }

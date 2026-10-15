@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
-import { conexaoDeTeste, URL_DE_TESTE } from './apoio/banco'
+import { conexaoLocal, URL_DE_TESTE } from '../servidor/pgLocal'
 import { chamar } from './apoio/http'
 
 /**
@@ -38,7 +38,7 @@ const SEGREDO = 'segredo-do-app'
 const MARCA = { 'X-Requested-With': 'ofertas' }
 
 describe.skipIf(!URL_DE_TESTE)('de ponta a ponta', () => {
-  const banco = URL_DE_TESTE ? conexaoDeTeste() : null
+  const banco = URL_DE_TESTE ? conexaoLocal(URL_DE_TESTE) : null
   let equipe: typeof import('../api/equipe').default
   let publico: typeof import('../api/publico').default
   let arquivo: typeof import('../api/arquivo').default
