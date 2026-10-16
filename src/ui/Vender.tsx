@@ -147,7 +147,9 @@ function Painel({ sessao, saiu }: { sessao: Sessao; saiu: () => void }) {
       </div>
       {AVISO_DO_ESTADO[loja.estado] && <p className="aviso">{AVISO_DO_ESTADO[loja.estado]}</p>}
       <div className="numeros">
-        <span>{produtos.length} produtos</span><span>{vistas} vistas</span><span>{cliques} chamadas no WhatsApp</span>
+        <div><strong>{produtos.length}</strong><span>produtos</span></div>
+        <div><strong>{vistas}</strong><span>vistas</span></div>
+        <div><strong className="destaque">{cliques}</strong><span>chamadas</span></div>
       </div>
       <div className="linha" style={{ margin: '14px 0' }}>
         <button className="botao" onClick={() => setEditando('novo')}>+ Novo produto</button>

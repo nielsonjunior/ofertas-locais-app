@@ -7,8 +7,8 @@ import { nomeDaCategoria } from '../dominio/categorias'
 import { emReais } from '../dominio/dinheiro'
 import { mostrarTelefone } from '../dominio/telefone'
 import type { Cidade, ProdutoNaVitrine } from '../dominio/tipos'
-import { Carregando, lerSalvos, useCarregar } from './comum'
-import { TelaDoProduto } from './TelaDoProduto'
+import { Carregando, compartilhar, lerSalvos, useCarregar } from './comum'
+import { IconeDeConversa, TelaDoProduto } from './TelaDoProduto'
 import { Link, cidadeLembrada, ir, lembrarCidade } from './rota'
 
 export function EscolherCidade() {
@@ -42,7 +42,7 @@ export function PaginaDoProduto({ id }: { id: string }) {
     <>
       <header className="feed-topo">
         <div className="linha">
-          <Link para={`/c/${dado.cidadeId}`} className="marca">← Ofertas Locais</Link>
+          <Link para={`/c/${dado.cidadeId}`} className="marca">← Ofertas<b>Locais</b></Link>
         </div>
       </header>
       <main className="feed"><TelaDoProduto produto={dado} aoVer={(v) => publico.vistas([v])} /></main>
@@ -71,18 +71,30 @@ export function PaginaDaLoja({ id }: { id: string }) {
   if (erro) return <main className="miolo"><p className="erro">{erro}</p><Link para="/">Início</Link></main>
   if (!loja) return <Carregando />
   const link = `https://wa.me/55${loja.whatsapp}?text=${encodeURIComponent(`Olá! Vi a ${loja.nome} no Ofertas Locais.`)}`
+  const comDesconto = loja.produtos.filter((p) => p.precoDe).length
   return (
     <main className="miolo">
-      <Link para={`/c/${loja.cidadeId}`} className="pequeno">← {loja.cidadeNome}</Link>
+      <Link para={`/c/${loja.cidadeId}`} className="pequeno suave sem-sublinhado">← {loja.cidadeNome}</Link>
       <div className="perfil">
         <div className="avatar" aria-hidden="true">{loja.nome.slice(0, 1).toUpperCase()}</div>
-        <h1 style={{ margin: 0 }}>{loja.nome}</h1>
+        <h1 className="arroba" style={{ margin: '4px 0 0' }}>@{loja.nome}</h1>
         <div className="suave pequeno">{nomeDaCategoria(loja.categoria)} · {loja.cidadeNome}</div>
-        {loja.endereco && <div className="pequeno">📍 {loja.endereco}</div>}
-        {loja.descricao && <p style={{ margin: 0, whiteSpace: 'pre-line' }}>{loja.descricao}</p>}
-        <a className="botao whats" href={link} target="_blank" rel="noopener noreferrer">WhatsApp {mostrarTelefone(loja.whatsapp)}</a>
+        <div className="contagens">
+          <div><strong>{loja.produtos.length}</strong><span>produtos</span></div>
+          <div><strong className="destaque">{comDesconto}</strong><span>em oferta</span></div>
+        </div>
+        {loja.descricao && <p style={{ margin: 0, whiteSpace: 'pre-line' }} className="pequeno">{loja.descricao}</p>}
+        {loja.endereco && <div className="pequeno suave">📍 {loja.endereco}</div>}
+        <div className="botoes">
+          <a className="botao amarelo" href={link} target="_blank" rel="noopener noreferrer"><IconeDeConversa /> WhatsApp</a>
+          <button className="botao claro" onClick={async () => {
+            const r = await compartilhar(loja.nome, `/loja/${loja.id}`)
+            if (r === 'copiado') window.alert('Link copiado')
+          }}>Compartilhar</button>
+        </div>
+        <div className="pequeno suave">{mostrarTelefone(loja.whatsapp)}</div>
       </div>
-      <h2>{loja.produtos.length} {loja.produtos.length === 1 ? 'produto' : 'produtos'}</h2>
+      <div className="abas-perfil"><span>▦ Produtos</span></div>
       <GradeDeProdutos produtos={loja.produtos} />
     </main>
   )

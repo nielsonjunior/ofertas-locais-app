@@ -58,6 +58,15 @@ Endereço novo em `api/` entra também em `ENDERECOS` de `servidor/api-local.ts`
 - **Imports em `api/` (e no que `api/` importa) terminam em `.js`**; o teste `importsDoServidor` barra.
 - **Segredo nunca no repositório.** `.env` está no `.gitignore`; o modelo é `.env.example`.
 
+## Visual
+
+- **Tema escuro único, como o TikTok**: fundo preto em todas as telas, sem modo claro.
+- **Vermelho `#fe2c55`** para agir (botões, selo de desconto); **amarelo `#ffd400`** para
+  preço, destaque e o botão "Chamar no WhatsApp". Cores só pelos tokens de `src/estilo.css`.
+- Feed em tela cheia com ações à direita e legenda embaixo; loja como perfil
+  (avatar, @nome, contagens, grade colada de 3 colunas); "+" no meio da barra.
+- Não usamos logotipo do WhatsApp nem de outra marca: ícones são desenhados aqui.
+
 ## Como o código é escrito
 
 - TypeScript estrito, `noUncheckedIndexedAccess`, `import type` para tipos.

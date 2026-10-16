@@ -68,20 +68,20 @@ export function TelaDoProduto({ produto, aoVer }: { produto: ProdutoNaVitrine; a
       )}
 
       <div className="acoes">
+        <Link para={`/loja/${produto.lojaId}`} className="acao" aria-label={`Loja ${produto.lojaNome}`}>
+          <span className="avatar-pequeno" aria-hidden="true">{produto.lojaNome.slice(0, 1).toUpperCase()}</span>
+        </Link>
         <button className="acao" aria-pressed={salvo} onClick={alternarSalvo} aria-label={salvo ? 'Tirar dos salvos' : 'Salvar'}>
-          <span className="bola">{salvo ? '♥' : '♡'}</span>{salvo ? 'Salvo' : 'Salvar'}
+          <span className="bola" aria-hidden="true">♥</span>{salvo ? 'Salvo' : 'Salvar'}
         </button>
         <button className="acao" onClick={async () => {
           const r = await compartilhar(produto.titulo, caminho)
           if (r === 'copiado') setAviso('Link copiado')
         }}>
-          <span className="bola">↗</span>Enviar
+          <span className="bola" aria-hidden="true">➦</span>Enviar
         </button>
-        <Link para={`/loja/${produto.lojaId}`} className="acao">
-          <span className="bola">🏪</span>Loja
-        </Link>
         <button className="acao" onClick={() => setDenunciando(true)} aria-label="Denunciar">
-          <span className="bola">⚑</span>
+          <span className="bola" aria-hidden="true" style={{ fontSize: 24 }}>⚑</span>
         </button>
       </div>
 
@@ -99,12 +99,12 @@ export function TelaDoProduto({ produto, aoVer }: { produto: ProdutoNaVitrine; a
           {produto.precoDe && <span className="preco-de">{emReais(produto.precoDe)}</span>}
           {desconto >= 5 && <span className="selo">-{desconto}%</span>}
         </div>
-        <a className="botao whats largo" href={whatsapp} target="_blank" rel="noopener noreferrer" onClick={() => publico.clique(produto.id)}>
-          Chamar no WhatsApp
+        <a className="chamar" href={whatsapp} target="_blank" rel="noopener noreferrer" onClick={() => publico.clique(produto.id)}>
+          <IconeDeConversa /> Chamar no WhatsApp
         </a>
         {aviso && <div className="pequeno" role="status">{aviso}</div>}
         {denunciando && (
-          <div className="cartao" style={{ color: 'var(--tinta)' }} role="dialog" aria-label="Denunciar produto">
+          <div className="cartao" role="dialog" aria-label="Denunciar produto">
             <strong>O que há de errado?</strong>
             <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
               {MOTIVOS_DE_DENUNCIA.map((m) => (
@@ -116,5 +116,15 @@ export function TelaDoProduto({ produto, aoVer }: { produto: ProdutoNaVitrine; a
         )}
       </div>
     </section>
+  )
+}
+
+/** Balão de conversa com telefone, desenhado aqui: não usamos a marca do WhatsApp. */
+export function IconeDeConversa() {
+  return (
+    <svg className="icone-whats" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3.5 20.5l1.3-4A8.5 8.5 0 1 1 8 19.3z" />
+      <path d="M9 9.5c0 3 2.5 5.5 5.5 5.5l1.2-1.4-2-1-1 .8a4 4 0 0 1-2.1-2.1l.8-1-1-2z" fill="currentColor" stroke="none" />
+    </svg>
   )
 }

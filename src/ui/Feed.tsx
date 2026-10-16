@@ -48,14 +48,14 @@ export function Feed({ cidadeId }: { cidadeId: string }) {
     <>
       <header className="feed-topo">
         <div className="linha">
-          <Link para={`/c/${cidadeId}`} className="marca">Ofertas Locais</Link>
-          <Link para="/?trocar" className="cidade">📍 {dado?.cidade.nome ?? '…'}</Link>
+          <Link para={`/c/${cidadeId}`} className="marca">Ofertas<b>Locais</b></Link>
+          <Link para="/?trocar" className="cidade">📍 {dado?.cidade.nome ?? '…'} ▾</Link>
         </div>
         <div className="chips" role="toolbar" aria-label="Categorias">
-          <button className="chip" aria-pressed={categoria === ''} onClick={() => setCategoria('')}>Tudo</button>
+          <button className="chip" aria-pressed={categoria === ''} onClick={() => setCategoria('')}>Para você</button>
           {CATEGORIAS.map((c) => (
             <button key={c.id} className="chip" aria-pressed={categoria === c.id} onClick={() => setCategoria(c.id)}>
-              {c.icone} {c.nome}
+              {c.nome}
             </button>
           ))}
         </div>
