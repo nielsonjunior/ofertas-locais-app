@@ -18,6 +18,7 @@ export function TelaDoProduto({ produto, aoVer }: { produto: ProdutoNaVitrine; a
   const [fotoAtual, setFotoAtual] = useState(0)
   const [descricaoAberta, setDescricaoAberta] = useState(false)
   const [denunciando, setDenunciando] = useState(false)
+  const [denunciado, setDenunciado] = useState(false)
   const tela = useRef<HTMLElement>(null)
   const caminho = `/p/${produto.id}`
   const desconto = produto.precoDe ? Math.round((1 - produto.preco / produto.precoDe) * 100) : 0
@@ -26,7 +27,7 @@ export function TelaDoProduto({ produto, aoVer }: { produto: ProdutoNaVitrine; a
   // Conta a vista quando o produto ocupa a maior parte da tela.
   useEffect(() => {
     if (!aoVer || !tela.current) return
-    const observador = new IntersectionObserver(([e]) => { if (e?.isIntersecting) aoVer(produto.id) }, { threshold: 0.7 })
+    const observador = new IntersectionObserver((entradas) => { if (entradas.some((e) => e.isIntersecting)) aoVer(produto.id) }, { threshold: 0.7 })
     observador.observe(tela.current)
     return () => observador.disconnect()
   }, [aoVer, produto.id])
@@ -38,10 +39,13 @@ export function TelaDoProduto({ produto, aoVer }: { produto: ProdutoNaVitrine; a
 
   async function denunciar(motivo: string) {
     setDenunciando(false)
+    // A folha fecha antes da resposta: sem isto, dois toques mandavam duas denúncias.
+    setDenunciado(true)
     try {
       await publico.denunciar(produto.id, motivo)
       avisar('Obrigado! Vamos olhar.')
     } catch (e) {
+      setDenunciado(false)
       avisar((e as Error).message)
     }
   }
@@ -80,7 +84,7 @@ export function TelaDoProduto({ produto, aoVer }: { produto: ProdutoNaVitrine; a
         <button className="acao" onClick={() => compartilhar(produto.titulo, caminho)}>
           <span className="bola"><IconeEnviar tamanho={32} /></span>Enviar
         </button>
-        <button className="acao discreta" onClick={() => setDenunciando(true)}>
+        <button className="acao discreta" onClick={() => (denunciado ? avisar('Você já denunciou este produto. Obrigado!') : setDenunciando(true))}>
           <span className="bola"><IconeBandeira tamanho={22} /></span>Denunciar
         </button>
       </div>
@@ -127,14 +131,25 @@ export function Folha({ titulo, fechar, children }: { titulo: string; fechar: ()
   aoFechar.current = fechar
   useEffect(() => {
     const anterior = document.activeElement as HTMLElement | null
-    caixa.current?.querySelector<HTMLElement>('button')?.focus()
-    const tecla = (e: KeyboardEvent) => { if (e.key === 'Escape') aoFechar.current() }
+    // O resto do app fica inerte enquanto a folha está aberta: Tab e leitor de tela não fogem para trás dela.
+    const raiz = document.getElementById('raiz')
+    raiz?.setAttribute('inert', '')
+    caixa.current?.focus()
+    const tecla = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') aoFechar.current()
+      if (e.key !== 'Tab' || !caixa.current) return
+      const botoes = [...caixa.current.querySelectorAll<HTMLElement>('button')]
+      const primeiro = botoes[0]
+      const ultimo = botoes[botoes.length - 1]
+      if (e.shiftKey && (document.activeElement === primeiro || document.activeElement === caixa.current)) { e.preventDefault(); ultimo?.focus() }
+      else if (!e.shiftKey && document.activeElement === ultimo) { e.preventDefault(); primeiro?.focus() }
+    }
     document.addEventListener('keydown', tecla)
-    return () => { document.removeEventListener('keydown', tecla); anterior?.focus() }
+    return () => { document.removeEventListener('keydown', tecla); raiz?.removeAttribute('inert'); anterior?.focus() }
   }, [])
   return createPortal(
     <div className="folha-fundo" onClick={fechar}>
-      <div className="folha" role="dialog" aria-modal="true" aria-label={titulo} ref={caixa} onClick={(e) => e.stopPropagation()}>
+      <div className="folha" role="dialog" aria-modal="true" aria-label={titulo} ref={caixa} tabIndex={-1} onClick={(e) => e.stopPropagation()}>
         <div className="folha-alca" aria-hidden="true" />
         <strong className="folha-titulo">{titulo}</strong>
         <div className="folha-opcoes">{children}</div>

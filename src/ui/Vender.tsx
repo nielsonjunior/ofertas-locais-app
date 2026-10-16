@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import { conta, lojista, publico } from '../dados/api'
 import type { Cadastro, MinhaLoja, ProdutoParaGravar, Sessao } from '../dados/api'
@@ -16,14 +16,17 @@ import { Link } from './rota'
 /** Senha com botão de mostrar: no celular, errar uma letra sem ver é o erro mais comum do cadastro. */
 function CampoSenha({ rotulo, valor, mudar, novo = false }: { rotulo: string; valor: string; mudar: (v: string) => void; novo?: boolean }) {
   const [ver, setVer] = useState(false)
+  const id = useId()
+  // O botão fica fora do rótulo: senão o leitor de tela lê o campo como "Senha Mostrar".
   return (
-    <label>{rotulo}
+    <div className="campo">
+      <label htmlFor={id}>{rotulo}</label>
       <span className="campo-senha">
-        <input type={ver ? 'text' : 'password'} value={valor} onChange={(e) => mudar(e.target.value)}
+        <input id={id} type={ver ? 'text' : 'password'} value={valor} onChange={(e) => mudar(e.target.value)}
           autoComplete={novo ? 'new-password' : 'current-password'} autoCapitalize="none" minLength={novo ? 10 : undefined} required />
-        <button type="button" className="botao-texto" onClick={() => setVer(!ver)} aria-pressed={ver}>{ver ? 'Esconder' : 'Mostrar'}</button>
+        <button type="button" className="botao-texto" onClick={() => setVer(!ver)}>{ver ? 'Esconder' : 'Mostrar'}</button>
       </span>
-    </label>
+    </div>
   )
 }
 
@@ -47,7 +50,9 @@ function EntrarOuCadastrar({ entrou }: { entrou: () => void }) {
         <button className={`botao pequeno ${aba === 'cadastrar' ? '' : 'claro'}`} onClick={() => setAba('cadastrar')}>Criar minha loja</button>
         <button className={`botao pequeno ${aba === 'entrar' ? '' : 'claro'}`} onClick={() => setAba('entrar')}>Já tenho conta</button>
       </div>
-      {aba === 'entrar' ? <Entrar entrou={entrou} /> : <Cadastrar entrou={entrou} />}
+      {/* As duas ficam montadas: trocar de aba não apaga o que já foi digitado no cadastro. */}
+      <div hidden={aba !== 'entrar'}><Entrar entrou={entrou} /></div>
+      <div hidden={aba !== 'cadastrar'}><Cadastrar entrou={entrou} /></div>
     </main>
   )
 }
@@ -62,10 +67,10 @@ export function Entrar({ entrou }: { entrou: (s: Sessao) => void }) {
     setIndo(true)
     setErro('')
     try {
+      // Fica "Entrando…" até o painel aparecer: o formulário não volta a ficar ativo no meio.
       entrou((await conta.entrar(usuario, senha)).sessao)
     } catch (falha) {
       setErro((falha as Error).message)
-    } finally {
       setIndo(false)
     }
   }
@@ -87,6 +92,13 @@ function Cadastrar({ entrou }: { entrou: () => void }) {
   const [erro, setErro] = useState('')
   const [indo, setIndo] = useState(false)
   const [passo, setPasso] = useState<1 | 2>(1)
+  const tituloDoPasso = useRef<HTMLDivElement>(null)
+  const passoAnterior = useRef(passo)
+  // Trocar de passo leva o foco para o título do passo novo (o botão que tinha o foco sumiu).
+  useEffect(() => {
+    if (passoAnterior.current !== passo) tituloDoPasso.current?.focus()
+    passoAnterior.current = passo
+  }, [passo])
   const campo = (nome: keyof Cadastro) => (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setF({ ...f, [nome]: e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value })
 
@@ -112,7 +124,6 @@ function Cadastrar({ entrou }: { entrou: () => void }) {
       entrou()
     } catch (falha) {
       setErro((falha as Error).message)
-    } finally {
       setIndo(false)
     }
   }
@@ -120,7 +131,7 @@ function Cadastrar({ entrou }: { entrou: () => void }) {
   if (passo === 2) {
     return (
       <form className="formulario" onSubmit={enviar}>
-        <div className="passo">Passo 2 de 2 · Sua conta</div>
+        <div className="passo" ref={tituloDoPasso} tabIndex={-1}>Passo 2 de 2 · Sua conta</div>
         <label>Usuário para entrar<input value={f.usuario} onChange={campo('usuario')} autoComplete="username" autoCapitalize="none" placeholder="ex.: casadotenis" required /></label>
         <CampoSenha rotulo="Senha (10 caracteres ou mais)" valor={f.senha} mudar={(senha) => setF({ ...f, senha })} novo />
         <label className="marcar">
@@ -136,7 +147,7 @@ function Cadastrar({ entrou }: { entrou: () => void }) {
 
   return (
     <form className="formulario" onSubmit={continuar}>
-      <div className="passo">Passo 1 de 2 · Sua loja</div>
+      <div className="passo" ref={tituloDoPasso} tabIndex={-1}>Passo 1 de 2 · Sua loja</div>
       <label>Nome da loja<input value={f.nome} onChange={campo('nome')} maxLength={60} required /></label>
       <label>Cidade
         <select value={f.cidadeId} onChange={campo('cidadeId')} required>
@@ -170,6 +181,7 @@ const AVISO_DO_ESTADO: Record<MinhaLoja['estado'], string> = {
 function Painel({ sessao, saiu }: { sessao: Sessao; saiu: () => void }) {
   const { dado, erro, recarregar } = useCarregar(lojista.minha, `minha|${sessao.usuario}`)
   const [editando, setEditando] = useState<ProdutoDaLoja | 'novo' | 'loja' | null>(null)
+  const [saindo, setSaindo] = useState(false)
 
   if (erro) return <main className="miolo"><p className="erro">{erro}</p></main>
   if (!dado) return <Carregando />
@@ -190,7 +202,7 @@ function Painel({ sessao, saiu }: { sessao: Sessao; saiu: () => void }) {
     <main className="miolo">
       <div className="linha" style={{ flexWrap: 'nowrap' }}>
         <h1 style={{ marginRight: 'auto', minWidth: 0 }}>{loja.nome}</h1>
-        <button className="botao claro pequeno" onClick={() => conta.sair().then(saiu)}>Sair</button>
+        <button className="botao claro pequeno" disabled={saindo} onClick={() => { setSaindo(true); void conta.sair().then(saiu, () => setSaindo(false)) }}>{saindo ? 'Saindo…' : 'Sair'}</button>
       </div>
       <span className={`estado ${loja.estado}`}>{NOME_DO_ESTADO[loja.estado]}</span>
       {AVISO_DO_ESTADO[loja.estado] && <p className="aviso">{AVISO_DO_ESTADO[loja.estado]}</p>}
@@ -204,7 +216,7 @@ function Painel({ sessao, saiu }: { sessao: Sessao; saiu: () => void }) {
           {passos.map((p) => (
             <li key={p.id} data-feito={p.feito} data-liberado={p.liberado}>
               <span className="marca-passo" aria-hidden="true">{p.feito && <IconeCerto tamanho={14} />}</span>
-              <span>{p.texto}</span>
+              <span>{p.texto}<span className="so-leitor">{p.feito ? ' (feito)' : ' (a fazer)'}</span></span>
               {p.id === 'compartilhar' && p.liberado && <button className="botao pequeno amarelo" onClick={compartilharLoja}>Compartilhar</button>}
             </li>
           ))}
@@ -238,13 +250,16 @@ function Painel({ sessao, saiu }: { sessao: Sessao; saiu: () => void }) {
 function DadosDaLoja({ loja, fechar }: { loja: MinhaLoja; fechar: () => void }) {
   const [f, setF] = useState({ nome: loja.nome, categoria: loja.categoria, whatsapp: mostrarTelefone(loja.whatsapp), endereco: loja.endereco, descricao: loja.descricao })
   const [erro, setErro] = useState('')
+  const [gravando, setGravando] = useState(false)
   async function gravar(e: FormEvent) {
     e.preventDefault()
+    setGravando(true)
     try {
       await lojista.gravarLoja(f)
       fechar()
     } catch (falha) {
       setErro((falha as Error).message)
+      setGravando(false)
     }
   }
   const campo = (nome: keyof typeof f) => (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setF({ ...f, [nome]: e.target.value })
@@ -264,7 +279,7 @@ function DadosDaLoja({ loja, fechar }: { loja: MinhaLoja; fechar: () => void }) 
         <label>Sobre a loja<textarea value={f.descricao} onChange={campo('descricao')} maxLength={500} /></label>
         {loja.estado === 'aprovada' && <p className="aviso pequeno">Trocar o nome ou o WhatsApp manda a loja de novo para análise.</p>}
         {erro && <p className="erro">{erro}</p>}
-        <button className="botao">Gravar</button>
+        <button className="botao" disabled={gravando}>{gravando ? 'Gravando…' : 'Gravar'}</button>
       </form>
     </main>
   )
@@ -299,15 +314,20 @@ function EditarProduto({ produto, categoriaDaLoja, fechar }: { produto: ProdutoD
     setEnviando('')
   }
 
+  // Dois toques rápidos em Publicar criavam o produto duas vezes.
+  const [gravando, setGravando] = useState(false)
   async function gravar(e: FormEvent) {
     e.preventDefault()
+    if (gravando) return
     setErro('')
+    setGravando(true)
     try {
       if (produto) await lojista.gravarProduto(produto.id, f)
       else await lojista.novoProduto(f)
       fechar()
     } catch (falha) {
       setErro((falha as Error).message)
+      setGravando(false)
     }
   }
 
@@ -359,7 +379,7 @@ function EditarProduto({ produto, categoriaDaLoja, fechar }: { produto: ProdutoD
         <label>Descrição<textarea value={f.descricao} onChange={campo('descricao')} maxLength={1000} placeholder="Tamanhos, cores, estado, como entrega…" /></label>
         <Previa f={f} />
         {erro && <p className="erro">{erro}</p>}
-        <button className="botao" disabled={Boolean(enviando)}>{produto ? 'Gravar' : 'Publicar'}</button>
+        <button className="botao" disabled={Boolean(enviando) || gravando}>{gravando ? 'Gravando…' : produto ? 'Gravar' : 'Publicar'}</button>
         {produto?.removido && <p className="aviso">Este produto foi removido pela administração depois de uma denúncia e não volta ao feed.</p>}
         {produto && !produto.removido && (
           <div className="linha">

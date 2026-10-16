@@ -121,6 +121,12 @@ function gravarLista(chave: string, lista: unknown[]): void {
 function listaDoAparelho<T>(chave: string, maximo: number, valido: (x: unknown) => x is T) {
   let cache = lerLista(chave, valido)
   const ouvintes = new Set<() => void>()
+  // Outra aba do navegador mexeu na lista: lê de novo, senão a próxima gravação daqui apagaria o que ela salvou.
+  window.addEventListener('storage', (e) => {
+    if (e.key !== chave) return
+    cache = lerLista(chave, valido)
+    ouvintes.forEach((f) => f())
+  })
   return {
     ler: () => cache,
     gravar(lista: T[]) {

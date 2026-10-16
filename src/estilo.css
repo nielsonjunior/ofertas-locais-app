@@ -293,3 +293,9 @@ h2 { font-size: 16px; margin: 24px 0 10px; font-weight: 700; }
 .previa-legenda strong { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .previa-preco { color: var(--amarelo); font-weight: 900; font-size: 16px; }
 .previa-legenda .preco-de { font-size: 11px; }
+
+.folha:focus, .passo:focus { outline: none; }
+.campo { display: grid; gap: 6px; }
+.campo > label { font-size: 13px; font-weight: 600; color: var(--texto-suave); }
+/* Só para leitor de tela. */
+.so-leitor { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

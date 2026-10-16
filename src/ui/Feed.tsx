@@ -14,8 +14,9 @@ function useVistas() {
   const contadas = useRef(new Set<string>())
   useEffect(() => {
     const enviar = () => {
-      if (pendentes.current.size === 0) return
-      publico.vistas([...pendentes.current])
+      // O servidor aceita 30 por pedido: quem rola rápido manda em lotes, sem perder vista.
+      const ids = [...pendentes.current]
+      for (let i = 0; i < ids.length; i += 30) publico.vistas(ids.slice(i, i + 30))
       pendentes.current.clear()
     }
     // No iPhone, trocar de app nem sempre dispara pagehide; visibilitychange dispara.
@@ -49,17 +50,30 @@ function categoriaDoEndereco(): string {
  * frente e o feed continua embaixo: quem chegou pelo link não fica sem saída.
  */
 export function Feed({ cidadeId, primeiro = null }: { cidadeId: string; primeiro?: ProdutoNaVitrine | null }) {
-  const [categoria, setCategoria] = useState(categoriaDoEndereco)
+  const [escolhida, setCategoria] = useState(categoriaDoEndereco)
+  const seguidas = useSeguidas()
+  // Deixou de seguir a última loja com a aba "Seguindo" aberta: a aba some, e o feed volta ao geral.
+  const categoria = escolhida === SEGUINDO && seguidas.length === 0 ? '' : escolhida
   // "Seguindo" filtra aqui mesmo o feed geral: as lojas seguidas ficam no aparelho.
   const pedida = categoria === SEGUINDO ? '' : categoria
   const { dado, erro, recarregar } = useCarregar<DadosDoFeed>(() => publico.feed(cidadeId, pedida), `${cidadeId}|${pedida}`)
-  const seguidas = useSeguidas()
   const aoVer = useVistas()
   const rolagem = useRef<HTMLElement>(null)
   const [atual, setAtual] = useState(0)
 
   useEffect(() => { if (dado) lembrarCidade(cidadeId) }, [dado, cidadeId])
   useEffect(() => { rolagem.current?.scrollTo({ top: 0 }); setAtual(0) }, [categoria])
+
+  // Tocar em Início ou na logo (ou voltar no navegador) traz a categoria do endereço e volta ao topo.
+  useEffect(() => {
+    const mudou = () => {
+      setCategoria(categoriaDoEndereco())
+      rolagem.current?.scrollTo({ top: 0 })
+      setAtual(0)
+    }
+    window.addEventListener('popstate', mudou)
+    return () => window.removeEventListener('popstate', mudou)
+  }, [])
 
   let produtos = dado?.produtos ?? []
   if (categoria === SEGUINDO) produtos = produtos.filter((p) => seguidas.some((s) => s.id === p.lojaId))
@@ -116,7 +130,7 @@ export function Feed({ cidadeId, primeiro = null }: { cidadeId: string; primeiro
         {dado && produtos.length === 0 && (
           <div className="vazio">
             {categoria === SEGUINDO
-              ? <p>As lojas que você segue ainda não postaram nada.</p>
+              ? <p>Nada novo das lojas que você segue em {nomeDaCidade}.</p>
               : <p>Nenhum produto {categoria ? `de ${nomeDaCategoria(categoria)} ` : ''}em {nomeDaCidade} ainda.</p>}
             {categoria
               ? <button className="botao" onClick={() => escolher('')}>Ver tudo</button>

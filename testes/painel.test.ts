@@ -17,6 +17,10 @@ describe('primeirosPassos do lojista', () => {
     expect(primeirosPassos(3, 'aprovada').slice(0, 2).every((p) => p.feito)).toBe(true)
   })
 
+  it('loja recusada não manda esperar: manda corrigir', () => {
+    expect(primeirosPassos(0, 'recusada')[1]!.texto).toBe('Corrija os dados da loja e grave de novo')
+  })
+
   it('cada estado tem um nome para a tela', () => {
     expect(NOME_DO_ESTADO).toEqual({ pendente: 'Em análise', aprovada: 'No ar', recusada: 'Recusada', bloqueada: 'Bloqueada' })
   })
