@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { del, put } from '@vercel/blob'
+import { tokenDoBlob } from './_ambiente.js'
 import type { Sql } from './_banco.js'
 import { ErroDoCliente } from './_http.js'
 import { extensao, tipoPelosBytes } from './_tipo.js'
@@ -22,7 +23,18 @@ export async function guardarFoto(sql: Sql, lojaId: string, bytes: Buffer): Prom
   const [hoje] = await sql`select count(*)::int as total from fotos where loja_id = ${lojaId} and criada_em > now() - interval '1 day'`
   if (Number(hoje?.total) >= FOTOS_POR_DIA) throw new ErroDoCliente('limite de fotos de hoje atingido; tente amanhã', 429)
   const caminho = `produtos/${lojaId}/${randomBytes(12).toString('base64url')}.${extensao(tipo)}`
-  const guardada = await put(caminho, bytes, { access: 'public', contentType: tipo, addRandomSuffix: false })
+  const token = tokenDoBlob()
+  if (!token) throw new Error('o armazém de fotos (Blob) não está ligado neste site; veja /api/saude')
+  let guardada
+  try {
+    guardada = await put(caminho, bytes, { access: 'public', contentType: tipo, addRandomSuffix: false, token })
+  } catch (erro) {
+    // O motivo vai para a tela (sem token nem endereço): o erro mais comum é
+    // o Blob ter sido criado como privado, e quem põe no ar precisa saber disso.
+    console.error('o armazém recusou a foto', erro)
+    const motivo = (erro instanceof Error ? erro.message : '').replace(/\S+:\/\/\S+/g, '').replace(/vercel_blob_rw_\S+/g, '').slice(0, 120)
+    throw new ErroDoCliente(`o armazém de fotos recusou a foto${motivo ? `: ${motivo}` : ''}`, 503)
+  }
   await sql`insert into fotos (url, loja_id) values (${guardada.url}, ${lojaId})`
   return guardada.url
 }
@@ -51,5 +63,5 @@ export async function apagarFotosSemUso(sql: Sql, lojaId: string, candidatas: st
   const soltas = candidatas.filter((u) => !emUso.has(u))
   if (soltas.length === 0) return
   await sql`delete from fotos where loja_id = ${lojaId} and url = any(${soltas})`
-  await del(soltas).catch((e: unknown) => console.error('não apagou fotos do armazém', e))
+  await del(soltas, { token: tokenDoBlob() }).catch((e: unknown) => console.error('não apagou fotos do armazém', e))
 }

@@ -1,5 +1,6 @@
 import { neon } from '@neondatabase/serverless'
 import type { NeonQueryFunction } from '@neondatabase/serverless'
+import { urlDoBanco } from './_ambiente.js'
 
 /**
  * Conexão com o Postgres (Neon) e as tabelas, criadas sozinhas na primeira
@@ -14,13 +15,13 @@ let conexao: Sql | null = null
 let pronto: Promise<void> | null = null
 
 export function temBanco(): boolean {
-  return Boolean(process.env.DATABASE_URL ?? process.env.POSTGRES_URL)
+  return Boolean(urlDoBanco())
 }
 
 function conectar(): Sql {
   if (conexao) return conexao
-  const url = process.env.DATABASE_URL ?? process.env.POSTGRES_URL
-  if (!url) throw new Error('o banco não está ligado neste site (DATABASE_URL)')
+  const url = urlDoBanco()
+  if (!url) throw new Error('o banco não está ligado neste site (DATABASE_URL); veja /api/saude')
   conexao ??= neon(url)
   return conexao
 }

@@ -5,7 +5,7 @@ import type { Plugin } from 'vite'
  * Faz os endereços /api/... funcionarem no `npm run dev`, com exatamente o
  * mesmo código que roda publicado na Vercel.
  */
-const ENDERECOS = ['/api/publico', '/api/conta', '/api/loja', '/api/admin', '/api/whatsapp']
+const ENDERECOS = ['/api/publico', '/api/conta', '/api/loja', '/api/admin', '/api/whatsapp', '/api/saude']
 
 const PASTA_API = fileURLToPath(new URL('../api/', import.meta.url))
 const PASTA_SERVIDOR = fileURLToPath(new URL('./', import.meta.url))

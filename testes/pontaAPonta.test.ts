@@ -43,6 +43,7 @@ describe.skipIf(!URL_DE_TESTE)('de ponta a ponta', () => {
     const { embaralhar } = await import('../api/_senha')
     process.env.ADMIN_INICIAL = `chefe:${await embaralhar('senha-do-chefe-1')}`
     process.env.WHATSAPP_SEGREDO_APP = SEGREDO
+    process.env.BLOB_READ_WRITE_TOKEN = 'vercel_blob_rw_teste_123'
     process.env.SITE_URL = 'https://ofertas.exemplo'
     conta = (await import('../api/conta')).default
     loja = (await import('../api/loja')).default
@@ -234,7 +235,7 @@ describe.skipIf(!URL_DE_TESTE)('de ponta a ponta', () => {
       const id = await postar('A', 'Boné provisório')
       const [linha] = await banco!.sql`select fotos from produtos where id = ${id}`
       await pedir(loja, 'DELETE', `/api/loja?acao=produto&id=${id}`, 'A')
-      expect(del).toHaveBeenCalledWith(linha!.fotos)
+      expect(del).toHaveBeenCalledWith(linha!.fotos, { token: 'vercel_blob_rw_teste_123' })
       expect(await banco!.sql`select url from fotos where url = any(${linha!.fotos as string[]})`).toEqual([])
     })
   })
