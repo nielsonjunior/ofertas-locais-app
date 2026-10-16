@@ -174,7 +174,7 @@ export async function cadastrarLojista(
   await freioPorEndereco(sql, req, 'cadastro', 5)
   // Teto geral por hora: trocar de endereço não basta para enterrar a fila
   // de aprovação com lojas falsas.
-  const [recentes] = await sql`select count(*)::int as total from lojas where criada_em > now() - interval '1 hour'`
+  const [recentes] = await sql`select count(*)::int as total from lojas where criada_em > now() - interval '1 hour' and not teste`
   if (Number(recentes?.total) >= CADASTROS_POR_HORA) throw new ErroDoCliente('muitos cadastros agora; tente de novo em alguns minutos', 429)
   const [cidade] = await sql`select id from cidades where id = ${loja.cidadeId}`
   if (!cidade) throw new ErroDoCliente('cidade desconhecida')

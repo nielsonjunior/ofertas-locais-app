@@ -46,6 +46,8 @@ const TABELAS = [
     criada_em timestamptz not null default now()
   )`,
   `create index if not exists lojas_da_cidade on lojas (cidade_id, estado)`,
+  // Loja de dados de teste (admin › Exemplos): não abre WhatsApp e some com um botão.
+  `alter table lojas add column if not exists teste boolean not null default false`,
   `create table if not exists contas (
     usuario text primary key,
     senha text not null,

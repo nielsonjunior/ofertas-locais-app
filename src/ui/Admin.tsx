@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { administrador, conta, MOTIVOS_DE_DENUNCIA } from '../dados/api'
+import type { FormEvent } from 'react'
+import { administrador, conta, MOTIVOS_DE_DENUNCIA, publico } from '../dados/api'
 import type { LojaNoAdmin } from '../dados/api'
 import { nomeDaCategoria } from '../dominio/categorias'
 import { emReais } from '../dominio/dinheiro'
@@ -33,7 +34,7 @@ const ESTADOS: { id: EstadoDaLoja | ''; nome: string }[] = [
 ]
 
 function Painel({ sair }: { sair: () => void }) {
-  const [aba, setAba] = useState<EstadoDaLoja | '' | 'denuncias'>('pendente')
+  const [aba, setAba] = useState<EstadoDaLoja | '' | 'denuncias' | 'exemplos'>('pendente')
   return (
     <main className="miolo">
       <div className="linha">
@@ -45,8 +46,9 @@ function Painel({ sair }: { sair: () => void }) {
           <button key={e.id} className={`botao pequeno ${aba === e.id ? '' : 'claro'}`} onClick={() => setAba(e.id)}>{e.nome}</button>
         ))}
         <button className={`botao pequeno ${aba === 'denuncias' ? '' : 'claro'}`} onClick={() => setAba('denuncias')}>Denúncias</button>
+        <button className={`botao pequeno ${aba === 'exemplos' ? '' : 'claro'}`} onClick={() => setAba('exemplos')}>Dados de teste</button>
       </div>
-      {aba === 'denuncias' ? <Denuncias /> : <Lojas estado={aba} />}
+      {aba === 'denuncias' ? <Denuncias /> : aba === 'exemplos' ? <Exemplos /> : <Lojas estado={aba} />}
     </main>
   )
 }
@@ -125,6 +127,73 @@ function Denuncias() {
           </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+/**
+ * Dados de teste: lojas e produtos inventados para ver o feed cheio. Ficam
+ * marcados como teste (não abrem WhatsApp) e saem com um toque.
+ */
+function Exemplos() {
+  const { dado: resumo, recarregar } = useCarregar(administrador.resumoExemplos, 'resumo-exemplos')
+  const { dado: cidades } = useCarregar(publico.cidades, 'cidades')
+  const [cidadeId, setCidadeId] = useState('caceres-mt')
+  const [lojas, setLojas] = useState(40)
+  const [porLoja, setPorLoja] = useState(25)
+  const [estado, setEstado] = useState('')
+  const [ocupado, setOcupado] = useState(false)
+
+  async function gerar(e: FormEvent) {
+    e.preventDefault()
+    setOcupado(true)
+    setEstado('Gerando…')
+    try {
+      const r = await administrador.gerarExemplos(cidadeId, lojas, porLoja)
+      setEstado(`Pronto: ${r.lojas} lojas e ${r.produtos} produtos de teste. O feed atualiza em até 1 minuto.`)
+      recarregar()
+    } catch (falha) {
+      setEstado((falha as Error).message)
+    } finally {
+      setOcupado(false)
+    }
+  }
+
+  async function apagar() {
+    if (!window.confirm('Apagar todas as lojas e produtos de teste? As lojas de verdade não são tocadas.')) return
+    setOcupado(true)
+    try {
+      const r = await administrador.apagarExemplos()
+      setEstado(`Apagadas ${r.lojas} lojas de teste e os produtos delas.`)
+      recarregar()
+    } catch (falha) {
+      setEstado((falha as Error).message)
+    } finally {
+      setOcupado(false)
+    }
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: 14 }}>
+      <div className="numeros">
+        <div><strong>{resumo?.lojas ?? '…'}</strong><span>lojas de teste</span></div>
+        <div><strong className="destaque">{resumo?.produtos ?? '…'}</strong><span>produtos de teste</span></div>
+      </div>
+      <form className="formulario cartao" onSubmit={gerar}>
+        <label>Cidade
+          <select value={cidadeId} onChange={(e) => setCidadeId(e.target.value)}>
+            {cidades?.map((c) => <option key={c.id} value={c.id}>{c.nome} - {c.uf}</option>)}
+          </select>
+        </label>
+        <div className="linha" style={{ flexWrap: 'nowrap' }}>
+          <label style={{ flex: 1 }}>Lojas<input type="number" min={1} max={200} value={lojas} onChange={(e) => setLojas(Number(e.target.value))} /></label>
+          <label style={{ flex: 1 }}>Produtos por loja<input type="number" min={1} max={100} value={porLoja} onChange={(e) => setPorLoja(Number(e.target.value))} /></label>
+        </div>
+        <span className="suave pequeno">Total: {lojas * porLoja} produtos (máximo 5.000 por vez). Lojas de teste não abrem WhatsApp.</span>
+        <button className="botao" disabled={ocupado}>Gerar dados de teste</button>
+      </form>
+      <button className="botao claro" onClick={apagar} disabled={ocupado || !resumo?.lojas}>Apagar dados de teste</button>
+      {estado && <p className="aviso" role="status">{estado}</p>}
     </div>
   )
 }

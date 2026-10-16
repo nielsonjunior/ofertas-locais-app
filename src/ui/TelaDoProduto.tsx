@@ -86,7 +86,7 @@ export function TelaDoProduto({ produto, aoVer }: { produto: ProdutoNaVitrine; a
       </div>
 
       <div className="legenda">
-        <Link para={`/loja/${produto.lojaId}`} className="loja">@{produto.lojaNome}</Link>
+        <Link para={`/loja/${produto.lojaId}`} className="loja">@{produto.lojaNome}{produto.lojaTeste && <span className="selo-teste">TESTE</span>}</Link>
         <div className="titulo">{produto.titulo}</div>
         {produto.descricao && <>
           <div className={`descricao ${descricaoAberta ? '' : 'curta'}`}>{produto.descricao}</div>
@@ -99,9 +99,12 @@ export function TelaDoProduto({ produto, aoVer }: { produto: ProdutoNaVitrine; a
           {produto.precoDe && <span className="preco-de">{emReais(produto.precoDe)}</span>}
           {desconto >= 5 && <span className="selo">-{desconto}%</span>}
         </div>
-        <a className="chamar" href={whatsapp} target="_blank" rel="noopener noreferrer" onClick={() => publico.clique(produto.id)}>
-          <IconeDeConversa /> Chamar no WhatsApp
-        </a>
+        {produto.lojaTeste
+          // Loja de dados de teste: o número é inventado e pode ser de alguém de verdade.
+          ? <span className="chamar teste" aria-disabled="true">Loja de teste · sem WhatsApp</span>
+          : <a className="chamar" href={whatsapp} target="_blank" rel="noopener noreferrer" onClick={() => publico.clique(produto.id)}>
+              <IconeDeConversa /> Chamar no WhatsApp
+            </a>}
         {aviso && <div className="pequeno" role="status">{aviso}</div>}
         {denunciando && (
           <div className="cartao" role="dialog" aria-label="Denunciar produto">

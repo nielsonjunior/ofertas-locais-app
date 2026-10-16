@@ -27,6 +27,7 @@ export function paraVitrine(l: Record<string, unknown>): ProdutoNaVitrine {
     lojaId: String(l.loja_id),
     lojaNome: String(l.loja_nome),
     lojaWhatsapp: String(l.loja_whatsapp),
+    lojaTeste: l.loja_teste === true,
     criadoEm: new Date(String(l.criado_em)).toISOString()
   }
 }
@@ -34,7 +35,7 @@ export function paraVitrine(l: Record<string, unknown>): ProdutoNaVitrine {
 export async function feedDaCidade(sql: Sql, cidadeId: string, categoria = ''): Promise<ProdutoNaVitrine[]> {
   const linhas = await sql`
     select p.id, p.titulo, p.descricao, p.categoria, p.preco, p.preco_de, p.fotos, p.criado_em,
-           l.id as loja_id, l.nome as loja_nome, l.whatsapp as loja_whatsapp
+           l.id as loja_id, l.nome as loja_nome, l.whatsapp as loja_whatsapp, l.teste as loja_teste
       from produtos p join lojas l on l.id = p.loja_id
      where l.cidade_id = ${cidadeId} and l.estado = 'aprovada' and p.ativo and not p.removido
        and (${categoria} = '' or p.categoria = ${categoria})
@@ -46,7 +47,7 @@ export async function feedDaCidade(sql: Sql, cidadeId: string, categoria = ''): 
 export async function produtoPublico(sql: Sql, id: string): Promise<ProdutoNaVitrine & { cidadeId: string } | null> {
   const [l] = await sql`
     select p.id, p.titulo, p.descricao, p.categoria, p.preco, p.preco_de, p.fotos, p.criado_em,
-           l.id as loja_id, l.nome as loja_nome, l.whatsapp as loja_whatsapp, l.cidade_id
+           l.id as loja_id, l.nome as loja_nome, l.whatsapp as loja_whatsapp, l.teste as loja_teste, l.cidade_id
       from produtos p join lojas l on l.id = p.loja_id
      where p.id = ${id} and p.ativo and not p.removido and l.estado = 'aprovada'`
   return l ? { ...paraVitrine(l), cidadeId: String(l.cidade_id) } : null
@@ -54,20 +55,20 @@ export async function produtoPublico(sql: Sql, id: string): Promise<ProdutoNaVit
 
 export async function lojaPublica(sql: Sql, id: string) {
   const [l] = await sql`
-    select l.id, l.nome, l.categoria, l.whatsapp, l.endereco, l.descricao, l.cidade_id, c.nome as cidade_nome
+    select l.id, l.nome, l.categoria, l.whatsapp, l.endereco, l.descricao, l.cidade_id, l.teste, c.nome as cidade_nome
       from lojas l join cidades c on c.id = l.cidade_id
      where l.id = ${id} and l.estado = 'aprovada'`
   if (!l) return null
   const produtos = await sql`
     select p.id, p.titulo, p.descricao, p.categoria, p.preco, p.preco_de, p.fotos, p.criado_em,
-           l.id as loja_id, l.nome as loja_nome, l.whatsapp as loja_whatsapp
+           l.id as loja_id, l.nome as loja_nome, l.whatsapp as loja_whatsapp, l.teste as loja_teste
       from produtos p join lojas l on l.id = p.loja_id
      where p.loja_id = ${id} and p.ativo and not p.removido
      order by p.criado_em desc limit 200`
   return {
     id: String(l.id), nome: String(l.nome), categoria: String(l.categoria), whatsapp: String(l.whatsapp),
     endereco: String(l.endereco), descricao: String(l.descricao),
-    cidadeId: String(l.cidade_id), cidadeNome: String(l.cidade_nome),
+    cidadeId: String(l.cidade_id), cidadeNome: String(l.cidade_nome), teste: l.teste === true,
     produtos: produtos.map(paraVitrine)
   }
 }

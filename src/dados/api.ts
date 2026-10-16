@@ -47,6 +47,7 @@ export interface LojaPublica {
   descricao: string
   cidadeId: string
   cidadeNome: string
+  teste: boolean
   produtos: ProdutoNaVitrine[]
 }
 
@@ -171,5 +172,9 @@ export const administrador = {
   denuncias: () => pedir<Denuncia[]>(`${A}denuncias`),
   tirarDoAr: (produtoId: string) => pedir<void>(`${A}tirar-do-ar`, json('POST', { produtoId })),
   resolver: (produtoId: string) => pedir<void>(`${A}resolver`, json('POST', { produtoId })),
-  novaCidade: (nome: string, uf: string) => pedir<{ id: string }>(`${A}cidade`, json('POST', { nome, uf }))
+  novaCidade: (nome: string, uf: string) => pedir<{ id: string }>(`${A}cidade`, json('POST', { nome, uf })),
+  resumoExemplos: () => pedir<{ lojas: number; produtos: number }>(`${A}resumo-exemplos`),
+  gerarExemplos: (cidadeId: string, lojas: number, produtosPorLoja: number) =>
+    pedir<{ lojas: number; produtos: number }>(`${A}gerar-exemplos`, json('POST', { cidadeId, lojas, produtosPorLoja })),
+  apagarExemplos: () => pedir<{ lojas: number }>(`${A}apagar-exemplos`, { method: 'POST' })
 }

@@ -1,8 +1,10 @@
+import { randomBytes } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { banco } from './_banco.js'
 import { exigirConta } from './_contas.js'
 import { ErroDoCliente, lerJson, parametro, responderErro, responderJson, textoDe } from './_http.js'
 import { normalizar } from '../src/dominio/busca.js'
+import { gerarExemplos } from '../src/dominio/exemplos.js'
 
 /**
  * O endereço /api/admin: aprovar lojas, cuidar das denúncias, cadastrar
@@ -14,6 +16,9 @@ import { normalizar } from '../src/dominio/busca.js'
  *   POST ?acao=tirar-do-ar      { produtoId }       desativa e resolve as denúncias dele
  *   POST ?acao=resolver         { produtoId }       denúncias sem fundamento
  *   POST ?acao=cidade           { nome, uf }
+ *   POST ?acao=gerar-exemplos   { cidadeId, lojas, produtosPorLoja }   dados de teste
+ *   POST ?acao=apagar-exemplos                                          apaga só os de teste
+ *   GET  ?acao=resumo-exemplos                                          quantos há
  */
 
 const ESTADOS = ['pendente', 'aprovada', 'recusada', 'bloqueada']
@@ -101,6 +106,58 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         const id = `${normalizar(nome).replace(/ /g, '-')}-${uf.toLowerCase()}`
         await sql`insert into cidades (id, nome, uf) values (${id}, ${nome}, ${uf}) on conflict do nothing`
         responderJson(res, 201, { id })
+        return
+      }
+
+      case 'POST gerar-exemplos': {
+        const corpo = await lerJson(req)
+        const cidadeId = textoDe(corpo, 'cidadeId', 60)
+        const [cidade] = await sql`select id from cidades where id = ${cidadeId}`
+        if (!cidade) throw new ErroDoCliente('cidade desconhecida')
+        let gerado
+        try {
+          gerado = gerarExemplos({ lojas: Number(corpo.lojas), produtosPorLoja: Number(corpo.produtosPorLoja), semente: Date.now() })
+        } catch (erro) {
+          throw new ErroDoCliente((erro as Error).message)
+        }
+        const ids = gerado.lojas.map(() => randomBytes(9).toString('base64url'))
+        // Tudo de uma vez por lista (unnest), em blocos: mil produtos são poucos
+        // pedidos ao banco, e não estoura o tempo da função.
+        await sql`
+          insert into lojas (id, cidade_id, nome, categoria, whatsapp, endereco, descricao, estado, teste)
+          select id, ${cidadeId}, nome, categoria, whatsapp, endereco, descricao, 'aprovada', true
+            from unnest(${ids}::text[], ${gerado.lojas.map((l) => l.nome)}::text[], ${gerado.lojas.map((l) => l.categoria)}::text[],
+                        ${gerado.lojas.map((l) => l.whatsapp)}::text[], ${gerado.lojas.map((l) => l.endereco)}::text[],
+                        ${gerado.lojas.map((l) => l.descricao)}::text[])
+              as t(id, nome, categoria, whatsapp, endereco, descricao)`
+        const BLOCO = 1000
+        for (let i = 0; i < gerado.produtos.length; i += BLOCO) {
+          const parte = gerado.produtos.slice(i, i + BLOCO)
+          await sql`
+            insert into produtos (id, loja_id, titulo, descricao, categoria, preco, preco_de, fotos, criado_em)
+            select id, loja_id, titulo, descricao, categoria, preco, preco_de, fotos::jsonb, criado_em
+              from unnest(${parte.map(() => randomBytes(9).toString('base64url'))}::text[], ${parte.map((p) => ids[p.loja]!)}::text[],
+                          ${parte.map((p) => p.titulo)}::text[], ${parte.map((p) => p.descricao)}::text[], ${parte.map((p) => p.categoria)}::text[],
+                          ${parte.map((p) => p.preco)}::int[], ${parte.map((p) => p.precoDe)}::int[],
+                          ${parte.map((p) => JSON.stringify(p.fotos))}::text[], ${parte.map((p) => p.criadoEm)}::timestamptz[])
+                as t(id, loja_id, titulo, descricao, categoria, preco, preco_de, fotos, criado_em)`
+        }
+        responderJson(res, 201, { lojas: gerado.lojas.length, produtos: gerado.produtos.length })
+        return
+      }
+
+      case 'POST apagar-exemplos': {
+        // Só o que é de teste: produtos e denúncias vão junto (on delete cascade).
+        const apagadas = await sql`delete from lojas where teste returning id`
+        responderJson(res, 200, { lojas: apagadas.length })
+        return
+      }
+
+      case 'GET resumo-exemplos': {
+        const [linha] = await sql`
+          select (select count(*)::int from lojas where teste) as lojas,
+                 (select count(*)::int from produtos p join lojas l on l.id = p.loja_id where l.teste) as produtos`
+        responderJson(res, 200, { lojas: linha?.lojas ?? 0, produtos: linha?.produtos ?? 0 })
         return
       }
 

@@ -86,13 +86,15 @@ export function PaginaDaLoja({ id }: { id: string }) {
         {loja.descricao && <p style={{ margin: 0, whiteSpace: 'pre-line' }} className="pequeno">{loja.descricao}</p>}
         {loja.endereco && <div className="pequeno suave">📍 {loja.endereco}</div>}
         <div className="botoes">
-          <a className="botao amarelo" href={link} target="_blank" rel="noopener noreferrer"><IconeDeConversa /> WhatsApp</a>
+          {loja.teste
+            ? <span className="botao claro" aria-disabled="true">Loja de teste</span>
+            : <a className="botao amarelo" href={link} target="_blank" rel="noopener noreferrer"><IconeDeConversa /> WhatsApp</a>}
           <button className="botao claro" onClick={async () => {
             const r = await compartilhar(loja.nome, `/loja/${loja.id}`)
             if (r === 'copiado') window.alert('Link copiado')
           }}>Compartilhar</button>
         </div>
-        <div className="pequeno suave">{mostrarTelefone(loja.whatsapp)}</div>
+        {!loja.teste && <div className="pequeno suave">{mostrarTelefone(loja.whatsapp)}</div>}
       </div>
       <div className="abas-perfil"><span>▦ Produtos</span></div>
       <GradeDeProdutos produtos={loja.produtos} />

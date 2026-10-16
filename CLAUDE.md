@@ -56,6 +56,7 @@ Endereço novo em `api/` entra também em `ENDERECOS` de `servidor/api-local.ts`
 - **Login:** mesma resposta para usuário inexistente, senha errada e travado; tentativa reservada antes do hash; freio por endereço.
 - **Consumidor não tem conta.** Salvos ficam no aparelho. Do robô do WhatsApp guardamos só número e cidade; "SAIR" apaga.
 - **Imports em `api/` (e no que `api/` importa) terminam em `.js`**; o teste `importsDoServidor` barra.
+- **Dados de teste** (admin › Dados de teste, `src/dominio/exemplos.ts`): lojas com `teste = true`, até 5.000 produtos por vez, fotos de `public/exemplos/`. Loja de teste **nunca abre WhatsApp** (o número é inventado e pode ser de alguém) e some inteira com "Apagar dados de teste".
 - **Segredo nunca no repositório.** `.env` está no `.gitignore`; o modelo é `.env.example`.
 
 ## Visual

@@ -307,4 +307,40 @@ describe.skipIf(!URL_DE_TESTE)('de ponta a ponta', () => {
       expect((await pedir(loja, 'GET', '/api/loja?acao=minha', 'A')).status).toBe(401)
     })
   })
+
+  describe('dados de teste', () => {
+    it('só o administrador gera', async () => {
+      expect((await pedir(admin, 'POST', '/api/admin?acao=gerar-exemplos', undefined, { cidadeId: 'caceres-mt', lojas: 2, produtosPorLoja: 2 })).status).toBe(401)
+    })
+
+    it('gera lojas aprovadas marcadas como teste, que entram no feed sem WhatsApp', async () => {
+      const r = await pedir(admin, 'POST', '/api/admin?acao=gerar-exemplos', 'chefe', { cidadeId: 'caceres-mt', lojas: 12, produtosPorLoja: 50 })
+      expect(r.status).toBe(201)
+      expect(r.json()).toEqual({ lojas: 12, produtos: 600 })
+      expect((await pedir(admin, 'GET', '/api/admin?acao=resumo-exemplos', 'chefe')).json()).toEqual({ lojas: 12, produtos: 600 })
+      const produtos = (await pedir(publico, 'GET', '/api/publico?acao=feed&cidade=caceres-mt')).json().produtos as { lojaTeste: boolean; fotos: string[] }[]
+      expect(produtos.length).toBeGreaterThanOrEqual(300)
+      expect(produtos.filter((p) => p.lojaTeste).length).toBeGreaterThan(250)
+      expect(produtos.find((p) => p.lojaTeste)?.fotos[0]).toMatch(/^\/exemplos\//)
+    })
+
+    it('não trava o cadastro de lojas de verdade', async () => {
+      const r = await pedir(conta, 'POST', '/api/conta?acao=cadastrar', undefined, novaLoja('loja.real', 'Loja Real'))
+      expect(r.status).toBe(201)
+    })
+
+    it('recusa acima do limite', async () => {
+      const r = await pedir(admin, 'POST', '/api/admin?acao=gerar-exemplos', 'chefe', { cidadeId: 'caceres-mt', lojas: 200, produtosPorLoja: 100 })
+      expect(r.status).toBe(400)
+    })
+
+    it('apagar tira só os de teste', async () => {
+      const antes = (await pedir(admin, 'GET', '/api/admin?acao=lojas', 'chefe')).json().total
+      const r = await pedir(admin, 'POST', '/api/admin?acao=apagar-exemplos', 'chefe')
+      expect(r.json()).toEqual({ lojas: 12 })
+      expect((await pedir(admin, 'GET', '/api/admin?acao=lojas', 'chefe')).json().total).toBe(antes - 12)
+      const produtos = (await pedir(publico, 'GET', '/api/publico?acao=feed&cidade=caceres-mt')).json().produtos as { lojaTeste: boolean }[]
+      expect(produtos.some((p) => p.lojaTeste)).toBe(false)
+    })
+  })
 })

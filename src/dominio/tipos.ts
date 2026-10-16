@@ -33,6 +33,8 @@ export interface ProdutoNaVitrine {
   lojaId: string
   lojaNome: string
   lojaWhatsapp: string
+  /** Loja de dados de teste: mostra o produto, mas não abre WhatsApp. */
+  lojaTeste?: boolean
   criadoEm: string
 }
 
