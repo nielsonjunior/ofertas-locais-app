@@ -100,10 +100,14 @@ export function Aviso() {
 
 /* --- guardado no aparelho: o consumidor não tem conta --- */
 
-function lerLista<T>(chave: string): T[] {
+/**
+ * O que está no aparelho pode ter vindo de uma versão antiga do site, ou ter
+ * sido mexido: item fora do formato é descartado, em vez de quebrar a tela.
+ */
+function lerLista<T>(chave: string, valido: (x: unknown) => x is T): T[] {
   try {
     const lista: unknown = JSON.parse(localStorage.getItem(chave) ?? '[]')
-    return Array.isArray(lista) ? (lista as T[]) : []
+    return Array.isArray(lista) ? lista.filter(valido) : []
   } catch {
     return []
   }
@@ -114,8 +118,8 @@ function gravarLista(chave: string, lista: unknown[]): void {
 }
 
 /** Uma lista do aparelho que várias telas leem ao mesmo tempo (seguir no feed muda a aba "Seguindo"). */
-function listaDoAparelho<T>(chave: string, maximo: number) {
-  let cache = lerLista<T>(chave)
+function listaDoAparelho<T>(chave: string, maximo: number, valido: (x: unknown) => x is T) {
+  let cache = lerLista(chave, valido)
   const ouvintes = new Set<() => void>()
   return {
     ler: () => cache,
@@ -128,9 +132,16 @@ function listaDoAparelho<T>(chave: string, maximo: number) {
   }
 }
 
-const salvos = listaDoAparelho<ProdutoNaVitrine>('ofertas.salvos', 200)
-const seguidas = listaDoAparelho<LojaSeguida>('ofertas.seguidas', 300)
-const buscas = listaDoAparelho<string>('ofertas.buscas', 8)
+const ehTexto = (x: unknown): x is string => typeof x === 'string'
+const objeto = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null
+const ehProduto = (x: unknown): x is ProdutoNaVitrine =>
+  objeto(x) && ehTexto(x.id) && ehTexto(x.titulo) && ehTexto(x.lojaId) && ehTexto(x.lojaNome) &&
+  typeof x.preco === 'number' && Array.isArray(x.fotos) && x.fotos.every(ehTexto)
+const ehLoja = (x: unknown): x is LojaSeguida => objeto(x) && ehTexto(x.id) && ehTexto(x.nome)
+
+const salvos = listaDoAparelho('ofertas.salvos', 200, ehProduto)
+const seguidas = listaDoAparelho('ofertas.seguidas', 300, ehLoja)
+const buscas = listaDoAparelho('ofertas.buscas', 8, ehTexto)
 
 export const lerSalvos = salvos.ler
 export const gravarSalvos = salvos.gravar

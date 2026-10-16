@@ -209,6 +209,8 @@ describe.skipIf(!URL_DE_TESTE)('de ponta a ponta', () => {
       await pedir(loja, 'PUT', '/api/loja?acao=loja', 'A', { ...minha, whatsapp: '65911112222' })
       expect((await pedir(loja, 'GET', '/api/loja?acao=minha', 'A')).json().loja.estado).toBe('pendente')
       expect((await feed()).some((p) => p.lojaNome === 'Casa do Tênis')).toBe(false)
+      // Salvos também: produto de loja em análise não volta pelo pedido dos salvos.
+      expect((await pedir(publico, 'GET', `/api/publico?acao=produtos&ids=${tenisId}`)).json()).toEqual([])
       await pedir(admin, 'POST', '/api/admin?acao=estado-da-loja', 'chefe', { id: minha.id, estado: 'aprovada' })
       // Mudar só o endereço não tira do ar.
       await pedir(loja, 'PUT', '/api/loja?acao=loja', 'A', { ...minha, whatsapp: '65911112222', endereco: 'Rua 2' })
@@ -237,6 +239,7 @@ describe.skipIf(!URL_DE_TESTE)('de ponta a ponta', () => {
       expect((await feed()).some((p) => p.id === tenisId)).toBe(false)
       const meu = (await pedir(loja, 'GET', '/api/loja?acao=minha', 'A')).json().produtos.find((x: { id: string }) => x.id === tenisId)
       expect(meu).toMatchObject({ removido: true })
+      expect((await pedir(publico, 'GET', `/api/publico?acao=produtos&ids=${tenisId}`)).json()).toEqual([])
     })
 
     it('apagar o produto apaga as fotos que ninguém mais usa', async () => {
