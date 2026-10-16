@@ -27,6 +27,6 @@ export function mostrarTelefone(digitos: string): string {
 
 /** O link que abre a conversa com a loja, com a mensagem pronta. */
 export function linkDoWhatsapp(whatsapp: string, produto: { titulo: string; preco: number; url: string }): string {
-  const mensagem = `Olá! Vi no Ofertas Locais: *${produto.titulo}* — ${emReais(produto.preco)}.\n${produto.url}\nAinda tem?`
+  const mensagem = `Olá! Vi no Tik Shop: *${produto.titulo}* — ${emReais(produto.preco)}.\n${produto.url}\nAinda tem?`
   return `https://wa.me/55${whatsapp}?text=${encodeURIComponent(mensagem)}`
 }

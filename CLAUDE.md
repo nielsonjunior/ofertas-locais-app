@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-**Ofertas Locais**: uma espécie de TikTok Shop local. O consumidor escolhe a
+**Tik Shop** (antes Ofertas Locais): uma espécie de TikTok Shop local. O consumidor escolhe a
 cidade e rola um feed em tela cheia com os produtos à venda nas lojas dela;
 gostou, chama a loja no WhatsApp. O lojista se cadastra e posta; o
 administrador aprova a loja antes de ela aparecer. Começa por Cáceres/MT.

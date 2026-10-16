@@ -42,7 +42,7 @@ export function PaginaDoProduto({ id }: { id: string }) {
     <>
       <header className="feed-topo">
         <div className="linha">
-          <Link para={`/c/${dado.cidadeId}`} className="marca">← Ofertas<b>Locais</b></Link>
+          <Link para={`/c/${dado.cidadeId}`} className="marca">← Tik<b>Shop</b></Link>
         </div>
       </header>
       <main className="feed"><TelaDoProduto produto={dado} aoVer={(v) => publico.vistas([v])} /></main>
@@ -70,7 +70,7 @@ export function PaginaDaLoja({ id }: { id: string }) {
   const { dado: loja, erro } = useCarregar<LojaPublica>(() => publico.loja(id), id)
   if (erro) return <main className="miolo"><p className="erro">{erro}</p><Link para="/">Início</Link></main>
   if (!loja) return <Carregando />
-  const link = `https://wa.me/55${loja.whatsapp}?text=${encodeURIComponent(`Olá! Vi a ${loja.nome} no Ofertas Locais.`)}`
+  const link = `https://wa.me/55${loja.whatsapp}?text=${encodeURIComponent(`Olá! Vi a ${loja.nome} no Tik Shop.`)}`
   const comDesconto = loja.produtos.filter((p) => p.precoDe).length
   return (
     <main className="miolo">

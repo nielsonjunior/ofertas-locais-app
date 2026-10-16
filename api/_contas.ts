@@ -85,7 +85,7 @@ function usuarioDoAdminInicial(): string {
 }
 
 /** Nomes que lojista não pode escolher: o do administrador inicial e os que parecem oficiais. */
-const RESERVADOS = new Set(['admin', 'administrador', 'adm', 'root', 'suporte', 'ofertas', 'ofertaslocais', 'equipe', 'moderacao'])
+const RESERVADOS = new Set(['admin', 'administrador', 'adm', 'root', 'suporte', 'ofertas', 'ofertaslocais', 'tikshop', 'equipe', 'moderacao'])
 
 export function usuarioReservado(usuario: string): boolean {
   return RESERVADOS.has(usuario) || usuario === usuarioDoAdminInicial()

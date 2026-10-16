@@ -1,4 +1,4 @@
-# Ofertas Locais
+# Tik Shop
 
 O que as lojas da sua cidade estão vendendo, agora — num feed como o do
 TikTok. Role, encontre e chame a loja no WhatsApp.
@@ -31,7 +31,7 @@ projeto ficou no ramo `legado`, e o do panfleto digital no histórico (`6eadda4`
 ### Robô do WhatsApp (opcional)
 
 O botão "Chamar no WhatsApp" funciona sem nada disto. O robô é para quem
-quiser buscar produtos conversando com um número da Ofertas Locais.
+quiser buscar produtos conversando com um número do Tik Shop.
 
 1. Em developers.facebook.com, crie um app do tipo *Business* e adicione o
    produto **WhatsApp**. Cadastre o número.

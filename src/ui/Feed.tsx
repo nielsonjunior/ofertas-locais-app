@@ -48,7 +48,7 @@ export function Feed({ cidadeId }: { cidadeId: string }) {
     <>
       <header className="feed-topo">
         <div className="linha">
-          <Link para={`/c/${cidadeId}`} className="marca">Ofertas<b>Locais</b></Link>
+          <Link para={`/c/${cidadeId}`} className="marca">Tik<b>Shop</b></Link>
           <Link para="/?trocar" className="cidade">📍 {dado?.cidade.nome ?? '…'} ▾</Link>
         </div>
         <div className="chips" role="toolbar" aria-label="Categorias">
