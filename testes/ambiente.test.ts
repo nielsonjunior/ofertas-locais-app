@@ -24,6 +24,9 @@ describe('tokenDoBlob', () => {
     expect(tokenDoBlob({ BLOB_READ_WRITE_TOKEN: 'vercel_blob_rw_abc_123' })).toBe('vercel_blob_rw_abc_123')
     expect(tokenDoBlob({ FOTOS_READ_WRITE_TOKEN: 'vercel_blob_rw_def_456' })).toBe('vercel_blob_rw_def_456')
     expect(tokenDoBlob({ OUTRO_TOKEN: 'x' })).toBe('')
+    // Formato novo que não conhecemos ainda: aceita, mas prefere o conhecido.
+    expect(tokenDoBlob({ BLOB_READ_WRITE_TOKEN: 'formato_novo_789' })).toBe('formato_novo_789')
+    expect(tokenDoBlob({ A_READ_WRITE_TOKEN: 'formato_novo', B_READ_WRITE_TOKEN: 'vercel_blob_rw_x_1' })).toBe('vercel_blob_rw_x_1')
   })
 })
 

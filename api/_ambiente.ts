@@ -22,9 +22,14 @@ export function urlDoBanco(ambiente: Ambiente = process.env): string {
   return primeiro(ambiente, ['DATABASE_URL', 'POSTGRES_URL'], (v) => /^postgres(ql)?:\/\//.test(v))
 }
 
-/** O token de escrita do Vercel Blob; vazio se não houver. */
+/**
+ * O token de escrita do Vercel Blob; vazio se não houver. Prefere o que tem
+ * o formato conhecido (vercel_blob_rw_…), mas aceita qualquer valor nesses
+ * nomes: se a Vercel mudar o formato, o site não pode achar que não há Blob.
+ */
 export function tokenDoBlob(ambiente: Ambiente = process.env): string {
-  return primeiro(ambiente, ['BLOB_READ_WRITE_TOKEN', 'READ_WRITE_TOKEN'], (v) => v.startsWith('vercel_blob_rw_'))
+  const nomes = ['BLOB_READ_WRITE_TOKEN', 'READ_WRITE_TOKEN']
+  return primeiro(ambiente, nomes, (v) => v.startsWith('vercel_blob_rw_')) || primeiro(ambiente, nomes, (v) => v.trim().length > 0)
 }
 
 /** Situação do ADMIN_INICIAL, sem nunca mostrar o valor. */
