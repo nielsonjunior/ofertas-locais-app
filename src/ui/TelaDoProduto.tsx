@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { publico, MOTIVOS_DE_DENUNCIA } from '../dados/api'
 import { emReais } from '../dominio/dinheiro'
 import { linkDoWhatsapp } from '../dominio/telefone'
 import type { ProdutoNaVitrine } from '../dominio/tipos'
-import { compartilhar, enderecoCompleto, useSalvo } from './comum'
+import { avisar, compartilhar, enderecoCompleto, Foto, useSalvo, useSeguir } from './comum'
+import { IconeBandeira, IconeCerto, IconeCoracao, IconeEnviar, IconeMais } from './icones'
 import { Link } from './rota'
 
 /**
@@ -12,13 +14,14 @@ import { Link } from './rota'
  */
 export function TelaDoProduto({ produto, aoVer }: { produto: ProdutoNaVitrine; aoVer?: (id: string) => void }) {
   const [salvo, alternarSalvo] = useSalvo(produto)
+  const [seguindo, alternarSeguir] = useSeguir({ id: produto.lojaId, nome: produto.lojaNome })
   const [fotoAtual, setFotoAtual] = useState(0)
   const [descricaoAberta, setDescricaoAberta] = useState(false)
-  const [aviso, setAviso] = useState('')
   const [denunciando, setDenunciando] = useState(false)
   const tela = useRef<HTMLElement>(null)
   const caminho = `/p/${produto.id}`
   const desconto = produto.precoDe ? Math.round((1 - produto.preco / produto.precoDe) * 100) : 0
+  const letra = produto.lojaNome.slice(0, 1).toUpperCase()
 
   // Conta a vista quando o produto ocupa a maior parte da tela.
   useEffect(() => {
@@ -27,12 +30,6 @@ export function TelaDoProduto({ produto, aoVer }: { produto: ProdutoNaVitrine; a
     observador.observe(tela.current)
     return () => observador.disconnect()
   }, [aoVer, produto.id])
-
-  useEffect(() => {
-    if (!aviso) return
-    const t = setTimeout(() => setAviso(''), 2500)
-    return () => clearTimeout(t)
-  }, [aviso])
 
   function rolouFotos(e: React.UIEvent<HTMLDivElement>) {
     const el = e.currentTarget
@@ -43,9 +40,9 @@ export function TelaDoProduto({ produto, aoVer }: { produto: ProdutoNaVitrine; a
     setDenunciando(false)
     try {
       await publico.denunciar(produto.id, motivo)
-      setAviso('Obrigado! Vamos olhar.')
+      avisar('Obrigado! Vamos olhar.')
     } catch (e) {
-      setAviso((e as Error).message)
+      avisar((e as Error).message)
     }
   }
 
@@ -56,10 +53,12 @@ export function TelaDoProduto({ produto, aoVer }: { produto: ProdutoNaVitrine; a
       <div className="fotos" onScroll={rolouFotos}>
         {produto.fotos.map((url, i) => (
           <div className="foto" key={url}>
-            <img className="fundo" src={url} alt="" aria-hidden="true" loading={i === 0 ? 'eager' : 'lazy'} />
-            <img className="frente" src={url} alt={i === 0 ? produto.titulo : `${produto.titulo}, foto ${i + 1}`} loading={i === 0 ? 'eager' : 'lazy'} />
+            {/* Só a primeira foto vem logo; as do lado esperam o dedo. */}
+            <Foto className="fundo" src={url} alt="" eager={i === 0} />
+            <Foto className="frente" src={url} alt={i === 0 ? produto.titulo : `${produto.titulo}, foto ${i + 1}`} letra={letra} eager={i === 0} />
           </div>
         ))}
+        {produto.fotos.length === 0 && <div className="foto"><Foto className="frente" src={undefined} alt={produto.titulo} letra={letra} /></div>}
       </div>
       {produto.fotos.length > 1 && (
         <div className="pontos" aria-hidden="true">
@@ -68,26 +67,28 @@ export function TelaDoProduto({ produto, aoVer }: { produto: ProdutoNaVitrine; a
       )}
 
       <div className="acoes">
-        <Link para={`/loja/${produto.lojaId}`} className="acao" aria-label={`Loja ${produto.lojaNome}`}>
-          <span className="avatar-pequeno" aria-hidden="true">{produto.lojaNome.slice(0, 1).toUpperCase()}</span>
-        </Link>
-        <button className="acao" aria-pressed={salvo} onClick={alternarSalvo} aria-label={salvo ? 'Tirar dos salvos' : 'Salvar'}>
-          <span className="bola" aria-hidden="true">♥</span>{salvo ? 'Salvo' : 'Salvar'}
+        <div className="avatar-com-seguir">
+          <Link para={`/loja/${produto.lojaId}`} className="avatar-pequeno" aria-label={`Loja ${produto.lojaNome}`}>{letra}</Link>
+          <button className="seguir" data-seguindo={seguindo} onClick={alternarSeguir}
+            aria-label={seguindo ? `Deixar de seguir ${produto.lojaNome}` : `Seguir ${produto.lojaNome}`}>
+            {seguindo ? <IconeCerto tamanho={14} /> : <IconeMais tamanho={14} />}
+          </button>
+        </div>
+        <button className="acao" aria-pressed={salvo} onClick={alternarSalvo}>
+          <span className="bola"><IconeCoracao tamanho={34} cheio /></span>{salvo ? 'Salvo' : 'Salvar'}
         </button>
-        <button className="acao" onClick={async () => {
-          const r = await compartilhar(produto.titulo, caminho)
-          if (r === 'copiado') setAviso('Link copiado')
-        }}>
-          <span className="bola" aria-hidden="true">➦</span>Enviar
+        <button className="acao" onClick={() => compartilhar(produto.titulo, caminho)}>
+          <span className="bola"><IconeEnviar tamanho={32} /></span>Enviar
         </button>
-        <button className="acao" onClick={() => setDenunciando(true)} aria-label="Denunciar">
-          <span className="bola" aria-hidden="true" style={{ fontSize: 24 }}>⚑</span>
+        <button className="acao discreta" onClick={() => setDenunciando(true)}>
+          <span className="bola"><IconeBandeira tamanho={22} /></span>Denunciar
         </button>
       </div>
 
       <div className="legenda">
         <Link para={`/loja/${produto.lojaId}`} className="loja">@{produto.lojaNome}{produto.lojaTeste && <span className="selo-teste">TESTE</span>}</Link>
-        <div className="titulo">{produto.titulo}</div>
+        {/* O nome do produto vem antes e maior: é o que quem rola quer saber. */}
+        <h2 className="titulo">{produto.titulo}</h2>
         {produto.descricao && <>
           <div className={`descricao ${descricaoAberta ? '' : 'curta'}`}>{produto.descricao}</div>
           {produto.descricao.length > 90 && (
@@ -105,20 +106,42 @@ export function TelaDoProduto({ produto, aoVer }: { produto: ProdutoNaVitrine; a
           : <a className="chamar" href={whatsapp} target="_blank" rel="noopener noreferrer" onClick={() => publico.clique(produto.id)}>
               <IconeDeConversa /> Chamar no WhatsApp
             </a>}
-        {aviso && <div className="pequeno" role="status">{aviso}</div>}
-        {denunciando && (
-          <div className="cartao" role="dialog" aria-label="Denunciar produto">
-            <strong>O que há de errado?</strong>
-            <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
-              {MOTIVOS_DE_DENUNCIA.map((m) => (
-                <button key={m.id} className="botao claro pequeno" onClick={() => denunciar(m.id)}>{m.nome}</button>
-              ))}
-              <button className="botao pequeno" onClick={() => setDenunciando(false)}>Cancelar</button>
-            </div>
-          </div>
-        )}
       </div>
+
+      {denunciando && (
+        <Folha titulo="O que há de errado?" fechar={() => setDenunciando(false)}>
+          {MOTIVOS_DE_DENUNCIA.map((m) => (
+            <button key={m.id} className="botao claro largo" onClick={() => denunciar(m.id)}>{m.nome}</button>
+          ))}
+        </Folha>
+      )}
     </section>
+  )
+}
+
+/** Folha que sobe de baixo, com fundo escuro: toque fora ou Esc fecha. */
+export function Folha({ titulo, fechar, children }: { titulo: string; fechar: () => void; children: React.ReactNode }) {
+  const caixa = useRef<HTMLDivElement>(null)
+  // Por referência: quem chama passa uma função nova a cada render, e o foco não pode pular.
+  const aoFechar = useRef(fechar)
+  aoFechar.current = fechar
+  useEffect(() => {
+    const anterior = document.activeElement as HTMLElement | null
+    caixa.current?.querySelector<HTMLElement>('button')?.focus()
+    const tecla = (e: KeyboardEvent) => { if (e.key === 'Escape') aoFechar.current() }
+    document.addEventListener('keydown', tecla)
+    return () => { document.removeEventListener('keydown', tecla); anterior?.focus() }
+  }, [])
+  return createPortal(
+    <div className="folha-fundo" onClick={fechar}>
+      <div className="folha" role="dialog" aria-modal="true" aria-label={titulo} ref={caixa} onClick={(e) => e.stopPropagation()}>
+        <div className="folha-alca" aria-hidden="true" />
+        <strong className="folha-titulo">{titulo}</strong>
+        <div className="folha-opcoes">{children}</div>
+        <button className="botao-texto" onClick={fechar}>Cancelar</button>
+      </div>
+    </div>,
+    document.body
   )
 }
 

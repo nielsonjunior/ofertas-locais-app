@@ -3,12 +3,29 @@ import type { ChangeEvent, FormEvent } from 'react'
 import { conta, lojista, publico } from '../dados/api'
 import type { Cadastro, MinhaLoja, ProdutoParaGravar, Sessao } from '../dados/api'
 import { prepararFoto } from '../dados/imagem'
+import { validarLoja } from '../dominio/cadastro'
 import { CATEGORIAS } from '../dominio/categorias'
-import { emReais } from '../dominio/dinheiro'
+import { emReais, paraCentavos } from '../dominio/dinheiro'
+import { NOME_DO_ESTADO, primeirosPassos } from '../dominio/painel'
 import { mostrarTelefone } from '../dominio/telefone'
 import type { Cidade, ProdutoDaLoja } from '../dominio/tipos'
-import { Carregando, useCarregar } from './comum'
+import { Carregando, compartilhar, Foto, useCarregar } from './comum'
+import { IconeCerto } from './icones'
 import { Link } from './rota'
+
+/** Senha com botão de mostrar: no celular, errar uma letra sem ver é o erro mais comum do cadastro. */
+function CampoSenha({ rotulo, valor, mudar, novo = false }: { rotulo: string; valor: string; mudar: (v: string) => void; novo?: boolean }) {
+  const [ver, setVer] = useState(false)
+  return (
+    <label>{rotulo}
+      <span className="campo-senha">
+        <input type={ver ? 'text' : 'password'} value={valor} onChange={(e) => mudar(e.target.value)}
+          autoComplete={novo ? 'new-password' : 'current-password'} autoCapitalize="none" minLength={novo ? 10 : undefined} required />
+        <button type="button" className="botao-texto" onClick={() => setVer(!ver)} aria-pressed={ver}>{ver ? 'Esconder' : 'Mostrar'}</button>
+      </span>
+    </label>
+  )
+}
 
 /** /vender: entrar ou cadastrar a loja; logado, o painel do lojista. */
 export function Vender() {
@@ -55,7 +72,7 @@ export function Entrar({ entrou }: { entrou: (s: Sessao) => void }) {
   return (
     <form className="formulario" onSubmit={enviar}>
       <label>Usuário<input value={usuario} onChange={(e) => setUsuario(e.target.value)} autoComplete="username" autoCapitalize="none" required /></label>
-      <label>Senha<input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} autoComplete="current-password" required /></label>
+      <CampoSenha rotulo="Senha" valor={senha} mudar={setSenha} />
       {erro && <p className="erro">{erro}</p>}
       <button className="botao" disabled={indo}>{indo ? 'Entrando…' : 'Entrar'}</button>
     </form>
@@ -69,8 +86,22 @@ function Cadastrar({ entrou }: { entrou: () => void }) {
   })
   const [erro, setErro] = useState('')
   const [indo, setIndo] = useState(false)
+  const [passo, setPasso] = useState<1 | 2>(1)
   const campo = (nome: keyof Cadastro) => (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setF({ ...f, [nome]: e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value })
+
+  // Confere a loja com as mesmas regras do servidor antes de pedir usuário e senha.
+  function continuar(e: FormEvent) {
+    e.preventDefault()
+    try {
+      validarLoja({ ...f })
+      setErro('')
+      setPasso(2)
+      window.scrollTo(0, 0)
+    } catch (falha) {
+      setErro((falha as Error).message)
+    }
+  }
 
   async function enviar(e: FormEvent) {
     e.preventDefault()
@@ -86,8 +117,26 @@ function Cadastrar({ entrou }: { entrou: () => void }) {
     }
   }
 
+  if (passo === 2) {
+    return (
+      <form className="formulario" onSubmit={enviar}>
+        <div className="passo">Passo 2 de 2 · Sua conta</div>
+        <label>Usuário para entrar<input value={f.usuario} onChange={campo('usuario')} autoComplete="username" autoCapitalize="none" placeholder="ex.: casadotenis" required /></label>
+        <CampoSenha rotulo="Senha (10 caracteres ou mais)" valor={f.senha} mudar={(senha) => setF({ ...f, senha })} novo />
+        <label className="marcar">
+          <input type="checkbox" checked={f.aceite} onChange={campo('aceite')} />
+          <span>Concordo que o WhatsApp e o endereço da loja aparecem para quem vê meus produtos, e que só vendo produtos legais, com preço e foto verdadeiros.</span>
+        </label>
+        {erro && <p className="erro">{erro}</p>}
+        <button className="botao" disabled={indo}>{indo ? 'Criando…' : 'Criar minha loja'}</button>
+        <button type="button" className="botao-texto" onClick={() => { setErro(''); setPasso(1) }}>← Voltar aos dados da loja</button>
+      </form>
+    )
+  }
+
   return (
-    <form className="formulario" onSubmit={enviar}>
+    <form className="formulario" onSubmit={continuar}>
+      <div className="passo">Passo 1 de 2 · Sua loja</div>
       <label>Nome da loja<input value={f.nome} onChange={campo('nome')} maxLength={60} required /></label>
       <label>Cidade
         <select value={f.cidadeId} onChange={campo('cidadeId')} required>
@@ -104,14 +153,8 @@ function Cadastrar({ entrou }: { entrou: () => void }) {
       <label>WhatsApp da loja<input value={f.whatsapp} onChange={campo('whatsapp')} inputMode="tel" placeholder="(65) 99999-0000" required /></label>
       <label>Endereço<input value={f.endereco} onChange={campo('endereco')} maxLength={160} placeholder="Rua, número, bairro" /></label>
       <label>Sobre a loja<textarea value={f.descricao} onChange={campo('descricao')} maxLength={500} placeholder="Horário, entrega, formas de pagamento…" /></label>
-      <label>Usuário para entrar<input value={f.usuario} onChange={campo('usuario')} autoComplete="username" autoCapitalize="none" placeholder="ex.: casadotenis" required /></label>
-      <label>Senha (10 caracteres ou mais)<input type="password" value={f.senha} onChange={campo('senha')} autoComplete="new-password" minLength={10} required /></label>
-      <label className="marcar">
-        <input type="checkbox" checked={f.aceite} onChange={campo('aceite')} />
-        <span>Concordo que o WhatsApp e o endereço da loja aparecem para quem vê meus produtos, e que só vendo produtos legais, com preço e foto verdadeiros.</span>
-      </label>
       {erro && <p className="erro">{erro}</p>}
-      <button className="botao" disabled={indo}>{indo ? 'Criando…' : 'Criar minha loja'}</button>
+      <button className="botao">Continuar</button>
       <p className="suave pequeno">Sua loja passa por uma conferência rápida antes de aparecer no feed.</p>
     </form>
   )
@@ -139,29 +182,47 @@ function Painel({ sessao, saiu }: { sessao: Sessao; saiu: () => void }) {
   const vistas = produtos.reduce((s, p) => s + p.vistas, 0)
   const cliques = produtos.reduce((s, p) => s + p.cliques, 0)
 
+  const passos = primeirosPassos(produtos.length, loja.estado)
+  const comecando = !passos[0]!.feito || !passos[1]!.feito
+  const compartilharLoja = () => compartilhar(loja.nome, `/loja/${loja.id}`)
+
   return (
     <main className="miolo">
-      <div className="linha">
-        <h1 style={{ marginRight: 'auto' }}>{loja.nome}</h1>
-        <span className={`estado ${loja.estado}`}>{loja.estado}</span>
+      <div className="linha" style={{ flexWrap: 'nowrap' }}>
+        <h1 style={{ marginRight: 'auto', minWidth: 0 }}>{loja.nome}</h1>
+        <button className="botao claro pequeno" onClick={() => conta.sair().then(saiu)}>Sair</button>
       </div>
+      <span className={`estado ${loja.estado}`}>{NOME_DO_ESTADO[loja.estado]}</span>
       {AVISO_DO_ESTADO[loja.estado] && <p className="aviso">{AVISO_DO_ESTADO[loja.estado]}</p>}
       <div className="numeros">
         <div><strong>{produtos.length}</strong><span>produtos</span></div>
         <div><strong>{vistas}</strong><span>vistas</span></div>
         <div><strong className="destaque">{cliques}</strong><span>chamadas</span></div>
       </div>
+      {comecando && loja.estado !== 'bloqueada' && (
+        <ol className="passos" aria-label="Primeiros passos">
+          {passos.map((p) => (
+            <li key={p.id} data-feito={p.feito} data-liberado={p.liberado}>
+              <span className="marca-passo" aria-hidden="true">{p.feito && <IconeCerto tamanho={14} />}</span>
+              <span>{p.texto}</span>
+              {p.id === 'compartilhar' && p.liberado && <button className="botao pequeno amarelo" onClick={compartilharLoja}>Compartilhar</button>}
+            </li>
+          ))}
+        </ol>
+      )}
       <div className="linha" style={{ margin: '14px 0' }}>
         <button className="botao" onClick={() => setEditando('novo')}>+ Novo produto</button>
         <button className="botao claro" onClick={() => setEditando('loja')}>Dados da loja</button>
-        {loja.estado === 'aprovada' && <Link para={`/loja/${loja.id}`} className="botao claro">Ver como cliente</Link>}
-        <button className="botao claro pequeno" style={{ marginLeft: 'auto' }} onClick={() => conta.sair().then(saiu)}>Sair</button>
+        {loja.estado === 'aprovada' && <>
+          <Link para={`/loja/${loja.id}`} className="botao claro">Ver como cliente</Link>
+          {!comecando && <button className="botao claro" onClick={compartilharLoja}>Compartilhar loja</button>}
+        </>}
       </div>
       {produtos.length === 0 && <p className="suave">Nenhum produto ainda. Comece pelo que mais vende.</p>}
       <div className="grade">
         {produtos.map((p) => (
           <button key={p.id} className="quadro" style={{ border: 0, padding: 0, cursor: 'pointer' }} onClick={() => setEditando(p)}>
-            {p.fotos[0] && <img src={p.fotos[0]} alt={p.titulo} loading="lazy" />}
+            <Foto src={p.fotos[0]} alt={p.titulo} letra={loja.nome.slice(0, 1).toUpperCase()} />
             {p.removido ? <span className="pausado">removido pela administração</span> : !p.ativo && <span className="pausado">pausado</span>}
             <span className="rotulo" style={{ textAlign: 'left' }}>
               <span className="valor">{emReais(p.preco)}</span><br />
@@ -296,6 +357,7 @@ function EditarProduto({ produto, categoriaDaLoja, fechar }: { produto: ProdutoD
           </select>
         </label>
         <label>Descrição<textarea value={f.descricao} onChange={campo('descricao')} maxLength={1000} placeholder="Tamanhos, cores, estado, como entrega…" /></label>
+        <Previa f={f} />
         {erro && <p className="erro">{erro}</p>}
         <button className="botao" disabled={Boolean(enviando)}>{produto ? 'Gravar' : 'Publicar'}</button>
         {produto?.removido && <p className="aviso">Este produto foi removido pela administração depois de uma denúncia e não volta ao feed.</p>}
@@ -311,5 +373,24 @@ function EditarProduto({ produto, categoriaDaLoja, fechar }: { produto: ProdutoD
         )}
       </form>
     </main>
+  )
+}
+
+/** Como o produto vai aparecer no feed, enquanto o lojista digita: ajuda a caprichar na foto e no título. */
+function Previa({ f }: { f: ProdutoParaGravar }) {
+  const preco = paraCentavos(f.preco)
+  const de = paraCentavos(f.precoDe)
+  return (
+    <div className="previa-caixa">
+      <span className="pequeno suave">Prévia no feed</span>
+      <div className="previa" aria-hidden="true">
+        <Foto src={f.fotos[0]} alt="" letra="?" />
+        <div className="previa-legenda">
+          <strong>{f.titulo || 'Título do produto'}</strong>
+          <span className="previa-preco">{preco ? emReais(preco) : 'R$ 0,00'}</span>
+          {de !== null && preco !== null && de > preco ? <span className="preco-de">{emReais(de)}</span> : null}
+        </div>
+      </div>
+    </div>
   )
 }

@@ -66,6 +66,8 @@ export const publico = {
   feed: (cidade: string, categoria = '') =>
     pedir<Feed>(`${P}feed&cidade=${encodeURIComponent(cidade)}${categoria ? `&categoria=${encodeURIComponent(categoria)}` : ''}`),
   produto: (id: string) => pedir<ProdutoNaVitrine & { cidadeId: string }>(`${P}produto&id=${encodeURIComponent(id)}`),
+  /** Os salvos que ainda estão no ar, com o preço de hoje. */
+  produtos: (ids: string[]) => pedir<ProdutoNaVitrine[]>(`${P}produtos&ids=${ids.map(encodeURIComponent).join(',')}`),
   loja: (id: string) => pedir<LojaPublica>(`${P}loja&id=${encodeURIComponent(id)}`),
   denunciar: (produtoId: string, motivo: string) => pedir<void>(`${P}denuncia`, json('POST', { produtoId, motivo })),
   /** Conta sem esperar resposta, e não reclama se falhar: é só estatística. */

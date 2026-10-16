@@ -5,6 +5,7 @@ import { Admin } from './ui/Admin'
 import { Feed } from './ui/Feed'
 import { EscolherCidade, PaginaDaBusca, PaginaDaLoja, PaginaDoProduto, PaginaDosSalvos } from './ui/Paginas'
 import { Vender } from './ui/Vender'
+import { Aviso } from './ui/comum'
 import { Link, cidadeLembrada, ir, useEndereco } from './ui/rota'
 
 /** Ícones de traço branco, como os da barra do TikTok. */
@@ -53,6 +54,7 @@ function App() {
     <>
       {pagina}
       <Barra caminho={caminho} cidade={cidade} />
+      <Aviso />
     </>
   )
 }

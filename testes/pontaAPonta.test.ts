@@ -188,6 +188,15 @@ describe.skipIf(!URL_DE_TESTE)('de ponta a ponta', () => {
       expect((await feed()).some((p) => p.id === tenisId)).toBe(true)
     })
 
+    it('salvos: devolve só os que estão no ar, com o preço de hoje', async () => {
+      const ids = `${tenisId},nao-existe,${tenisId}`
+      await pedir(loja, 'POST', '/api/loja?acao=ativo', 'A', { id: tenisId, ativo: false })
+      expect((await pedir(publico, 'GET', `/api/publico?acao=produtos&ids=${ids}`)).json()).toEqual([])
+      await pedir(loja, 'POST', '/api/loja?acao=ativo', 'A', { id: tenisId, ativo: true })
+      const noAr = (await pedir(publico, 'GET', `/api/publico?acao=produtos&ids=${ids}`)).json() as { id: string }[]
+      expect(noAr.map((p) => p.id)).toEqual([tenisId])
+    })
+
     it('vistas e cliques chegam ao painel do lojista', async () => {
       await pedir(publico, 'POST', '/api/publico?acao=vistas', undefined, { ids: [tenisId, tenisId] })
       await pedir(publico, 'POST', '/api/publico?acao=clique', undefined, { id: tenisId })

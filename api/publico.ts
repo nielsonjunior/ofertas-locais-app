@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { banco } from './_banco.js'
 import { freioPorEndereco } from './_contas.js'
 import { ErroDoCliente, lerJson, parametro, responderErro, responderJson } from './_http.js'
-import { cidades, feedDaCidade, lojaPublica, produtoPublico } from './_vitrine.js'
+import { cidades, feedDaCidade, lojaPublica, produtoPublico, produtosPublicos } from './_vitrine.js'
 import { categoriaValida } from '../src/dominio/categorias.js'
 
 /**
@@ -14,6 +14,7 @@ import { categoriaValida } from '../src/dominio/categorias.js'
  *   GET  ?acao=feed&cidade=caceres-mt[&categoria=roupas]
  *   GET  ?acao=produto&id=…
  *   GET  ?acao=loja&id=…
+ *   GET  ?acao=produtos&ids=a,b,c    (salvos: os que ainda estão no ar; até 200)
  *   POST ?acao=vistas    { ids: [...] }     (até 30 de uma vez)
  *   POST ?acao=clique    { id }             (tocou em "Chamar no WhatsApp")
  *   POST ?acao=denuncia  { produtoId, motivo }
@@ -54,6 +55,12 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         const produto = await produtoPublico(sql, parametro(req, 'id'))
         if (!produto) throw new ErroDoCliente('produto não encontrado', 404)
         responderJson(res, 200, produto)
+        return
+      }
+
+      case 'GET produtos': {
+        const ids = [...new Set(parametro(req, 'ids').split(',').map((x) => x.trim()).filter(Boolean))].slice(0, 200)
+        responderJson(res, 200, await produtosPublicos(sql, ids))
         return
       }
 

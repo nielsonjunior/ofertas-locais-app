@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import { alternarSeguida, lembrarBusca } from '../dominio/aparelho'
+import type { LojaSeguida } from '../dominio/aparelho'
 import type { ProdutoNaVitrine } from '../dominio/tipos'
+import { Sacola } from './icones'
 
 /**
  * Carrega uma vez por chave e devolve dado, erro e recarregar. O dado só vale
@@ -25,37 +28,146 @@ export function useCarregar<T>(carregar: () => Promise<T>, chave: string) {
   return { dado: daChave ? estado.dado : undefined, erro: daChave ? estado.erro : undefined, recarregar }
 }
 
-export function Carregando({ escuro = false }: { escuro?: boolean }) {
-  return <div className={escuro ? 'vazio' : 'miolo suave'}>Carregando…</div>
+/* --- esperando: o formato do que vem, em cinza, passa mais rapidez que "Carregando…" --- */
+
+export function Carregando() {
+  return (
+    <main className="miolo" aria-busy="true" aria-label="Carregando">
+      <div className="esqueleto" style={{ height: 26, width: '55%', marginTop: 8 }} />
+      <div className="esqueleto" style={{ height: 14, width: '80%', marginTop: 14 }} />
+      <div className="esqueleto" style={{ height: 14, width: '65%', marginTop: 8 }} />
+      <EsqueletoDaGrade />
+    </main>
+  )
 }
 
-/* --- salvos: ficam só neste aparelho; o consumidor não tem conta --- */
+export function EsqueletoDaGrade() {
+  return (
+    <div className="grade" style={{ marginTop: 20 }} aria-hidden="true">
+      {Array.from({ length: 9 }, (_, i) => <div key={i} className="quadro esqueleto" />)}
+    </div>
+  )
+}
 
-const CHAVE_DOS_SALVOS = 'ofertas.salvos'
-const MAXIMO_DE_SALVOS = 200
+export function EsqueletoDoFeed() {
+  return (
+    <section className="tela" aria-busy="true" aria-label="Carregando">
+      <div className="esqueleto-feed">
+        <div className="esqueleto" style={{ height: 16, width: 140 }} />
+        <div className="esqueleto" style={{ height: 20, width: '70%' }} />
+        <div className="esqueleto" style={{ height: 30, width: 130 }} />
+        <div className="esqueleto" style={{ height: 46, width: '100%' }} />
+      </div>
+    </section>
+  )
+}
 
-export function lerSalvos(): ProdutoNaVitrine[] {
+/* --- foto: se não carregar, um quadro com a inicial da loja, nunca o texto solto --- */
+
+export function Foto({ src, alt, className, letra = '', eager = false }:
+  { src: string | undefined; alt: string; className?: string; letra?: string; eager?: boolean }) {
+  const [quebrou, setQuebrou] = useState(false)
+  useEffect(() => setQuebrou(false), [src])
+  if (!src || quebrou) {
+    return <div className={`${className ?? ''} sem-foto`} role={alt ? 'img' : undefined} aria-label={alt || undefined} aria-hidden={alt ? undefined : true}>{letra}</div>
+  }
+  return <img className={className} src={src} alt={alt} loading={eager ? 'eager' : 'lazy'} decoding="async" onError={() => setQuebrou(true)} />
+}
+
+/* --- logo --- */
+
+export function Marca() {
+  return <span className="marca-desenho"><Sacola /><span>Tik<b>Shop</b></span></span>
+}
+
+/* --- aviso rápido embaixo da tela (no lugar do alert do navegador) --- */
+
+let avisoAtual = ''
+const quemOuveOAviso = new Set<() => void>()
+let temporizador: ReturnType<typeof setTimeout> | undefined
+
+export function avisar(texto: string): void {
+  avisoAtual = texto
+  quemOuveOAviso.forEach((f) => f())
+  clearTimeout(temporizador)
+  temporizador = setTimeout(() => { avisoAtual = ''; quemOuveOAviso.forEach((f) => f()) }, 2600)
+}
+
+export function Aviso() {
+  const texto = useSyncExternalStore((f) => { quemOuveOAviso.add(f); return () => quemOuveOAviso.delete(f) }, () => avisoAtual)
+  return <div className="toast" role="status" aria-live="polite" data-visivel={Boolean(texto)}>{texto}</div>
+}
+
+/* --- guardado no aparelho: o consumidor não tem conta --- */
+
+function lerLista<T>(chave: string): T[] {
   try {
-    const lista: unknown = JSON.parse(localStorage.getItem(CHAVE_DOS_SALVOS) ?? '[]')
-    return Array.isArray(lista) ? (lista as ProdutoNaVitrine[]) : []
+    const lista: unknown = JSON.parse(localStorage.getItem(chave) ?? '[]')
+    return Array.isArray(lista) ? (lista as T[]) : []
   } catch {
     return []
   }
 }
 
-function gravarSalvos(lista: ProdutoNaVitrine[]): void {
-  try { localStorage.setItem(CHAVE_DOS_SALVOS, JSON.stringify(lista.slice(0, MAXIMO_DE_SALVOS))) } catch { /* modo anônimo */ }
+function gravarLista(chave: string, lista: unknown[]): void {
+  try { localStorage.setItem(chave, JSON.stringify(lista)) } catch { /* modo anônimo: fica só nesta visita */ }
+}
+
+/** Uma lista do aparelho que várias telas leem ao mesmo tempo (seguir no feed muda a aba "Seguindo"). */
+function listaDoAparelho<T>(chave: string, maximo: number) {
+  let cache = lerLista<T>(chave)
+  const ouvintes = new Set<() => void>()
+  return {
+    ler: () => cache,
+    gravar(lista: T[]) {
+      cache = lista.slice(0, maximo)
+      gravarLista(chave, cache)
+      ouvintes.forEach((f) => f())
+    },
+    assinar(f: () => void) { ouvintes.add(f); return () => { ouvintes.delete(f) } }
+  }
+}
+
+const salvos = listaDoAparelho<ProdutoNaVitrine>('ofertas.salvos', 200)
+const seguidas = listaDoAparelho<LojaSeguida>('ofertas.seguidas', 300)
+const buscas = listaDoAparelho<string>('ofertas.buscas', 8)
+
+export const lerSalvos = salvos.ler
+export const gravarSalvos = salvos.gravar
+
+export function useSalvos(): ProdutoNaVitrine[] {
+  return useSyncExternalStore(salvos.assinar, salvos.ler)
 }
 
 export function useSalvo(produto: ProdutoNaVitrine): [boolean, () => void] {
-  const [salvo, setSalvo] = useState(() => lerSalvos().some((p) => p.id === produto.id))
+  const lista = useSalvos()
+  const salvo = lista.some((p) => p.id === produto.id)
   const alternar = useCallback(() => {
-    const lista = lerSalvos().filter((p) => p.id !== produto.id)
-    if (!salvo) lista.unshift(produto)
-    gravarSalvos(lista)
-    setSalvo(!salvo)
+    const sem = salvos.ler().filter((p) => p.id !== produto.id)
+    salvos.gravar(salvo ? sem : [produto, ...sem])
   }, [produto, salvo])
   return [salvo, alternar]
+}
+
+export function useSeguidas(): LojaSeguida[] {
+  return useSyncExternalStore(seguidas.assinar, seguidas.ler)
+}
+
+export function useSeguir(loja: LojaSeguida): [boolean, () => void] {
+  const lista = useSeguidas()
+  const seguindo = lista.some((l) => l.id === loja.id)
+  const alternar = useCallback(() => {
+    seguidas.gravar(alternarSeguida(seguidas.ler(), loja))
+    avisar(seguindo ? `Deixou de seguir ${loja.nome}` : `Seguindo ${loja.nome}`)
+  }, [loja, seguindo])
+  return [seguindo, alternar]
+}
+
+export function useBuscasRecentes(): [string[], (termo: string) => void, () => void] {
+  const lista = useSyncExternalStore(buscas.assinar, buscas.ler)
+  const lembrar = useCallback((termo: string) => buscas.gravar(lembrarBusca(buscas.ler(), termo)), [])
+  const limpar = useCallback(() => buscas.gravar([]), [])
+  return [lista, lembrar, limpar]
 }
 
 /** Endereço completo de uma página do site, para compartilhar e para a mensagem do WhatsApp. */
@@ -63,16 +175,17 @@ export function enderecoCompleto(caminho: string): string {
   return `${window.location.origin}${caminho}`
 }
 
-export async function compartilhar(titulo: string, caminho: string): Promise<'compartilhado' | 'copiado' | 'nada'> {
+/** Compartilha pelo celular; sem isso, copia o link e avisa. */
+export async function compartilhar(titulo: string, caminho: string): Promise<void> {
   const url = enderecoCompleto(caminho)
   try {
     if (navigator.share) {
       await navigator.share({ title: titulo, text: titulo, url })
-      return 'compartilhado'
+      return
     }
     await navigator.clipboard.writeText(url)
-    return 'copiado'
+    avisar('Link copiado')
   } catch {
-    return 'nada'
+    // Fechou a janela de compartilhar: não é erro.
   }
 }

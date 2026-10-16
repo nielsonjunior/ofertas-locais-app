@@ -53,6 +53,17 @@ export async function produtoPublico(sql: Sql, id: string): Promise<ProdutoNaVit
   return l ? { ...paraVitrine(l), cidadeId: String(l.cidade_id) } : null
 }
 
+/** Os que ainda estão no ar, entre os ids pedidos (salvos do consumidor). */
+export async function produtosPublicos(sql: Sql, ids: string[]): Promise<ProdutoNaVitrine[]> {
+  if (ids.length === 0) return []
+  const linhas = await sql`
+    select p.id, p.titulo, p.descricao, p.categoria, p.preco, p.preco_de, p.fotos, p.criado_em,
+           l.id as loja_id, l.nome as loja_nome, l.whatsapp as loja_whatsapp, l.teste as loja_teste
+      from produtos p join lojas l on l.id = p.loja_id
+     where p.id = any(${ids}) and p.ativo and not p.removido and l.estado = 'aprovada'`
+  return linhas.map(paraVitrine)
+}
+
 export async function lojaPublica(sql: Sql, id: string) {
   const [l] = await sql`
     select l.id, l.nome, l.categoria, l.whatsapp, l.endereco, l.descricao, l.cidade_id, l.teste, c.nome as cidade_nome
