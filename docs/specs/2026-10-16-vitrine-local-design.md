@@ -21,6 +21,7 @@ aprovamos a loja antes de ela aparecer.
 | Como a compra acontece | **Chamar a loja no WhatsApp**, com a mensagem pronta | Lança rápido e sem intermediar dinheiro: sem Pix, estorno nem responsabilidade de pagamento |
 | O que o lojista posta | **Fotos** (até 5 por produto); vídeo curto na fase 2 | Foto todo lojista tem; vídeo custa para hospedar e converter |
 | Quem cadastra | **O lojista**, e nós aprovamos a loja | Escala sem equipe; a aprovação barra golpe |
+| Produto novo de loja aprovada | **Vai direto ao ar**, sem aprovação (decidido em 2026-10-16) | Lojista posta na hora; o controle é a aprovação da loja, a volta para análise quando muda nome ou WhatsApp, e a denúncia |
 | Que comércio entra | **Qualquer comércio local**, com categorias | Feed variado é o que prende |
 
 ## Quem usa
